@@ -73,14 +73,6 @@
             <div class="content-area" id="contentArea">
                 <div class="files-container" id="filesContainer"></div>
             </div>
-
-            <div class="preview-panel" id="previewPanel">
-                <div class="preview-header">
-                    <h6>Preview</h6>
-                    <button class="btn-close" id="closePreview"></button>
-                </div>
-                <div class="preview-content" id="previewContent"></div>
-            </div>
         </div>
     </div>
 
@@ -97,7 +89,7 @@
             <i data-feather="folder"></i> Open
         </div>
         <div class="context-menu-item" data-action="rename">
-            <i data-feather="edit"></i> Rename
+            <i data-feather="edit-2"></i> Rename
         </div>
         <div class="context-menu-item" data-action="copy">
             <i data-feather="copy"></i> Copy
@@ -121,9 +113,6 @@
     </script>
 
     <!-- Load modules with type="module" -->
-    <script type="module" src="{{ url_for('static', filename='js/fileManager.js') }}"></script>
-    <script type="module" src="{{ url_for('static', filename='js/uiManager.js') }}"></script>
-    <script type="module" src="{{ url_for('static', filename='js/dragDrop.js') }}"></script>
     <script type="module" src="{{ url_for('static', filename='js/app.js') }}"></script>
 </body>
 </html>

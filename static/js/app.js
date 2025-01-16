@@ -8,7 +8,6 @@ class App {
         this.fileManager = null;
         this.uiManager = null;
         this.dragDropManager = null;
-        this.init();
     }
 
     async init() {
@@ -17,8 +16,9 @@ class App {
             this.fileManager = new FileManager();
             await this.fileManager.init();
 
-            // Initialize UI manager
+            // Initialize UI manager with file manager instance
             this.uiManager = new UIManager(this.fileManager);
+            await this.uiManager.refreshContent();
 
             // Initialize drag and drop manager
             this.dragDropManager = new DragDropManager(this.fileManager, this.uiManager);
@@ -26,10 +26,10 @@ class App {
             // Bind global navigation function
             window.navigateTo = this.navigateTo.bind(this);
 
-            // Initialize Feather icons
-            feather.replace();
+            // Initialize keyboard shortcuts
+            document.addEventListener('keydown', (e) => this.handleKeyboardShortcuts(e));
 
-            // Initial content load
+            // Load initial content
             await this.loadInitialContent();
         } catch (error) {
             console.error('Initialization error:', error);
@@ -47,11 +47,15 @@ class App {
     }
 
     showError(message) {
-        const errorAlert = document.getElementById('errorAlert');
-        if (errorAlert) {
-            errorAlert.textContent = message;
-            errorAlert.style.display = 'block';
-            setTimeout(() => errorAlert.style.display = 'none', 3000);
+        if (this.uiManager) {
+            this.uiManager.showError(message);
+        } else {
+            const errorAlert = document.getElementById('errorAlert');
+            if (errorAlert) {
+                errorAlert.textContent = message;
+                errorAlert.style.display = 'block';
+                setTimeout(() => errorAlert.style.display = 'none', 3000);
+            }
         }
     }
 
@@ -60,6 +64,9 @@ class App {
             this.fileManager.currentPath = path;
             await this.uiManager.refreshContent();
             this.uiManager.updateBreadcrumb();
+            // Update browser history
+            const state = { path };
+            window.history.pushState(state, '', `#${path}`);
         } catch (error) {
             console.error('Navigation error:', error);
             this.showError('Failed to navigate to folder');
@@ -103,13 +110,19 @@ class App {
 
             case e.key === 'F2':
                 e.preventDefault();
-                this.uiManager.renameSelected();
+                if (this.uiManager.selectedItems.size === 1) {
+                    const item = Array.from(this.uiManager.selectedItems)[0];
+                    this.uiManager.handleContextMenuAction('rename', item);
+                }
                 break;
 
             case e.key === 'Escape':
                 e.preventDefault();
-                this.uiManager.clearSelection();
+                this.uiManager.selectedItems.clear();
                 this.uiManager.hideContextMenu();
+                document.querySelectorAll('.file-item.selected').forEach(el => {
+                    el.classList.remove('selected');
+                });
                 break;
         }
     }
@@ -117,25 +130,21 @@ class App {
 
 // Initialize the application when the DOM is ready
 document.addEventListener('DOMContentLoaded', () => {
-    window.app = new App();
+    const app = new App();
+    app.init();
+    window.app = app;
 });
 
 // Prevent default browser drag and drop behavior
 document.addEventListener('dragover', (e) => e.preventDefault());
 document.addEventListener('drop', (e) => e.preventDefault());
 
-// Handle back/forward browser navigation
+// Handle browser navigation
 window.addEventListener('popstate', (e) => {
     if (e.state && e.state.path) {
         window.app.navigateTo(e.state.path);
     }
 });
-
-// Update browser history when navigating
-const pushState = (path) => {
-    const state = { path };
-    window.history.pushState(state, '', `#${path}`);
-};
 
 // Handle initial hash route
 window.addEventListener('load', () => {
