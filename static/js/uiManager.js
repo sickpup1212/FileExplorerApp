@@ -512,7 +512,8 @@ class UIManager {
     }
 
     showShareDialog(shareLink) {
-        const shareDialog = new bootstrap.Modal(document.getElementById('shareDialog'));
+        const shareDialogEl = document.getElementById('shareDialog');
+        const shareDialog = new bootstrap.Modal(shareDialogEl);
         const shareLinkInput = document.getElementById('shareLink');
         const copyButton = document.getElementById('copyShareLink');
 
@@ -520,8 +521,16 @@ class UIManager {
 
         copyButton.onclick = () => {
             shareLinkInput.select();
-            document.execCommand('copy');
-            this.showSuccess('Link copied to clipboard!');
+            navigator.clipboard.writeText(shareLinkInput.value)
+                .then(() => {
+                    this.showSuccess('Link copied to clipboard!');
+                })
+                .catch(() => {
+                    // Fallback to older execCommand method
+                    shareLinkInput.select();
+                    document.execCommand('copy');
+                    this.showSuccess('Link copied to clipboard!');
+                });
         };
 
         shareDialog.show();
