@@ -4,43 +4,42 @@ class FileManager {
         this.db = null;
         this.currentPath = 'root';
         this.clipboard = null;
-        this.MAX_FILE_SIZE = 100 * 1024 * 1024; // 100MB
-
-        this.init();
+        this.MAX_FILE_SIZE = 50 * 1024 * 1024; // 50MB
     }
 
     async init() {
         try {
-            const request = indexedDB.open('FileExplorerDB', 2);
+            await new Promise((resolve, reject) => {
+                const request = indexedDB.open('FileExplorerDB', 2);
 
-            request.onerror = (event) => {
-                console.error('Database error:', event.target.error);
-            };
+                request.onerror = () => reject(request.error);
 
-            request.onupgradeneeded = (event) => {
-                const db = event.target.result;
-                if (!db.objectStoreNames.contains('files')) {
-                    const store = db.createObjectStore('files', { keyPath: 'path' });
-                    store.createIndex('parentPath', 'parentPath', { unique: false });
-                    store.add({
-                        path: 'root',
-                        name: 'Root',
-                        type: 'folder',
-                        parentPath: null,
-                        content: null,
-                        created: new Date(),
-                        modified: new Date(),
-                        size: 0
-                    });
-                }
-            };
+                request.onupgradeneeded = (event) => {
+                    const db = event.target.result;
+                    if (!db.objectStoreNames.contains('files')) {
+                        const store = db.createObjectStore('files', { keyPath: 'path' });
+                        store.createIndex('parentPath', 'parentPath', { unique: false });
+                        store.add({
+                            path: 'root',
+                            name: 'Root',
+                            type: 'folder',
+                            parentPath: null,
+                            content: null,
+                            created: new Date(),
+                            modified: new Date(),
+                            size: 0
+                        });
+                    }
+                };
 
-            request.onsuccess = (event) => {
-                this.db = event.target.result;
-                this.loadContent('root');
-            };
+                request.onsuccess = (event) => {
+                    this.db = event.target.result;
+                    resolve();
+                };
+            });
         } catch (error) {
             console.error('Initialization error:', error);
+            throw error;
         }
     }
 
@@ -66,29 +65,32 @@ class FileManager {
         }
 
         const path = `${this.currentPath}/${name}`;
-        const transaction = this.db.transaction(['files'], 'readwrite');
-        const store = transaction.objectStore('files');
 
+        // First check if item exists
         const exists = await this.itemExists(path);
         if (exists) {
             throw new Error('Item already exists');
         }
 
-        const item = {
-            path,
-            name,
-            type,
-            parentPath: this.currentPath,
-            content,
-            created: new Date(),
-            modified: new Date(),
-            size: content ? content.length : 0
-        };
-
         return new Promise((resolve, reject) => {
+            const transaction = this.db.transaction(['files'], 'readwrite');
+            const store = transaction.objectStore('files');
+
+            const item = {
+                path,
+                name,
+                type,
+                parentPath: this.currentPath,
+                content,
+                created: new Date(),
+                modified: new Date(),
+                size: content ? content.length : 0
+            };
+
             const request = store.add(item);
-            request.onsuccess = () => resolve(item);
-            request.onerror = () => reject(request.error);
+
+            transaction.oncomplete = () => resolve(item);
+            transaction.onerror = () => reject(transaction.error);
         });
     }
 
@@ -139,7 +141,8 @@ class FileManager {
             const transaction = this.db.transaction(['files'], 'readonly');
             const store = transaction.objectStore('files');
             const request = store.get(path);
-            request.onsuccess = () => resolve(!!request.result);
+
+            transaction.oncomplete = () => resolve(!!request.result);
         });
     }
 
@@ -148,8 +151,9 @@ class FileManager {
             const transaction = this.db.transaction(['files'], 'readonly');
             const store = transaction.objectStore('files');
             const request = store.get(path);
-            request.onsuccess = () => resolve(request.result);
-            request.onerror = () => reject(request.error);
+
+            transaction.oncomplete = () => resolve(request.result);
+            transaction.onerror = () => reject(transaction.error);
         });
     }
     async getItems(path) {
@@ -159,8 +163,8 @@ class FileManager {
             const index = store.index('parentPath');
             const request = index.getAll(path);
 
-            request.onsuccess = () => resolve(request.result);
-            request.onerror = () => reject(request.error);
+            transaction.oncomplete = () => resolve(request.result);
+            transaction.onerror = () => reject(transaction.error);
         });
     }
     copyToClipboard(item, cut = false) {

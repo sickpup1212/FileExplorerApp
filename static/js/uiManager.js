@@ -3,7 +3,7 @@ class UIManager {
         this.fileManager = fileManager;
         this.selectedItems = new Set();
         this.viewMode = 'grid';
-        
+
         this.initializeUI();
         this.bindEvents();
     }
@@ -37,10 +37,34 @@ class UIManager {
         document.addEventListener('keydown', (e) => this.handleKeyboardShortcuts(e));
     }
 
+    async createFolder() {
+        const name = prompt('Enter folder name:');
+        if (!name) return;
+
+        try {
+            await this.fileManager.createItem(name, 'folder');
+            await this.refreshContent();
+        } catch (error) {
+            this.showError(error.message);
+        }
+    }
+
+    async createFile() {
+        const name = prompt('Enter file name:');
+        if (!name) return;
+
+        try {
+            await this.fileManager.createItem(name, 'file', '');
+            await this.refreshContent();
+        } catch (error) {
+            this.showError(error.message);
+        }
+    }
+
     updateBreadcrumb() {
         const breadcrumb = document.getElementById('breadcrumb');
         const parts = this.fileManager.currentPath.split('/');
-        
+
         breadcrumb.innerHTML = parts.map((part, index) => {
             const path = parts.slice(0, index + 1).join('/');
             return `
@@ -54,7 +78,7 @@ class UIManager {
     async refreshContent() {
         const container = document.getElementById('filesContainer');
         const items = await this.fileManager.getItems(this.fileManager.currentPath);
-        
+
         container.innerHTML = '';
         items.sort((a, b) => {
             if (a.type === b.type) return a.name.localeCompare(b.name);
@@ -71,9 +95,9 @@ class UIManager {
         const div = document.createElement('div');
         div.className = `file-item ${item.type}`;
         div.dataset.path = item.path;
-        
+
         const icon = item.type === 'folder' ? 'folder' : this.getFileIcon(item.name);
-        
+
         div.innerHTML = `
             <div class="file-item-icon">
                 <i data-feather="${icon}"></i>
@@ -105,49 +129,6 @@ class UIManager {
             zip: 'package'
         };
         return icons[ext] || 'file';
-    }
-
-    showContextMenu(e, item) {
-        e.preventDefault();
-        
-        const menu = document.getElementById('contextMenu');
-        menu.style.display = 'block';
-        menu.style.left = `${e.pageX}px`;
-        menu.style.top = `${e.pageY}px`;
-
-        const actions = menu.querySelectorAll('[data-action]');
-        actions.forEach(action => {
-            action.onclick = () => this.handleContextMenuAction(action.dataset.action, item);
-        });
-    }
-
-    hideContextMenu() {
-        document.getElementById('contextMenu').style.display = 'none';
-    }
-
-    async handleContextMenuAction(action, item) {
-        this.hideContextMenu();
-        
-        switch (action) {
-            case 'open':
-                this.handleItemDoubleClick(item);
-                break;
-            case 'rename':
-                await this.renameItem(item);
-                break;
-            case 'copy':
-                this.fileManager.copyToClipboard(item, false);
-                break;
-            case 'cut':
-                this.fileManager.copyToClipboard(item, true);
-                break;
-            case 'delete':
-                await this.deleteItem(item);
-                break;
-            case 'download':
-                this.downloadItem(item);
-                break;
-        }
     }
 
     async handleFileUpload(event) {
@@ -188,6 +169,32 @@ class UIManager {
         container.className = `files-container ${mode}-view`;
     }
 
+    handleItemClick(e, item) {
+        // Clear previous selection if not holding Ctrl/Cmd
+        if (!e.ctrlKey && !e.metaKey) {
+            this.selectedItems.clear();
+            document.querySelectorAll('.file-item.selected').forEach(el => {
+                el.classList.remove('selected');
+            });
+        }
+
+        const element = e.currentTarget;
+        element.classList.toggle('selected');
+
+        if (element.classList.contains('selected')) {
+            this.selectedItems.add(item);
+        } else {
+            this.selectedItems.delete(item);
+        }
+    }
+
+    async handleItemDoubleClick(item) {
+        if (item.type === 'folder') {
+            this.fileManager.currentPath = item.path;
+            await this.refreshContent();
+            this.updateBreadcrumb();
+        }
+    }
     // Additional methods for handling item selection, keyboard shortcuts, etc.
     // would go here...
 }
