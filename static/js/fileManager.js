@@ -1,3 +1,4 @@
+// FileManager module for handling file operations
 class FileManager {
     constructor() {
         this.db = null;
@@ -9,45 +10,53 @@ class FileManager {
     }
 
     async init() {
-        const request = indexedDB.open('FileExplorerDB', 2);
+        try {
+            const request = indexedDB.open('FileExplorerDB', 2);
 
-        request.onerror = (event) => {
-            console.error('Database error:', event.target.error);
-        };
+            request.onerror = (event) => {
+                console.error('Database error:', event.target.error);
+            };
 
-        request.onupgradeneeded = (event) => {
-            const db = event.target.result;
-            if (!db.objectStoreNames.contains('files')) {
-                const store = db.createObjectStore('files', { keyPath: 'path' });
-                store.createIndex('parentPath', 'parentPath', { unique: false });
-                store.add({
-                    path: 'root',
-                    name: 'Root',
-                    type: 'folder',
-                    parentPath: null,
-                    content: null,
-                    created: new Date(),
-                    modified: new Date(),
-                    size: 0
-                });
-            }
-        };
+            request.onupgradeneeded = (event) => {
+                const db = event.target.result;
+                if (!db.objectStoreNames.contains('files')) {
+                    const store = db.createObjectStore('files', { keyPath: 'path' });
+                    store.createIndex('parentPath', 'parentPath', { unique: false });
+                    store.add({
+                        path: 'root',
+                        name: 'Root',
+                        type: 'folder',
+                        parentPath: null,
+                        content: null,
+                        created: new Date(),
+                        modified: new Date(),
+                        size: 0
+                    });
+                }
+            };
 
-        request.onsuccess = (event) => {
-            this.db = event.target.result;
-            this.loadContent('root');
-        };
+            request.onsuccess = (event) => {
+                this.db = event.target.result;
+                this.loadContent('root');
+            };
+        } catch (error) {
+            console.error('Initialization error:', error);
+        }
     }
 
-    async getItems(path) {
+    async loadContent(path) {
         return new Promise((resolve, reject) => {
-            const transaction = this.db.transaction(['files'], 'readonly');
-            const store = transaction.objectStore('files');
-            const index = store.index('parentPath');
-            const request = index.getAll(path);
+            try {
+                const transaction = this.db.transaction(['files'], 'readonly');
+                const store = transaction.objectStore('files');
+                const index = store.index('parentPath');
+                const request = index.getAll(path);
 
-            request.onsuccess = () => resolve(request.result);
-            request.onerror = () => reject(request.error);
+                request.onsuccess = () => resolve(request.result);
+                request.onerror = () => reject(request.error);
+            } catch (error) {
+                reject(error);
+            }
         });
     }
 
@@ -89,7 +98,7 @@ class FileManager {
         const item = await this.getItem(path);
 
         if (item.type === 'folder') {
-            const children = await this.getItems(path);
+            const children = await this.loadContent(path);
             for (const child of children) {
                 await this.deleteItem(child.path);
             }
@@ -143,7 +152,17 @@ class FileManager {
             request.onerror = () => reject(request.error);
         });
     }
+    async getItems(path) {
+        return new Promise((resolve, reject) => {
+            const transaction = this.db.transaction(['files'], 'readonly');
+            const store = transaction.objectStore('files');
+            const index = store.index('parentPath');
+            const request = index.getAll(path);
 
+            request.onsuccess = () => resolve(request.result);
+            request.onerror = () => reject(request.error);
+        });
+    }
     copyToClipboard(item, cut = false) {
         this.clipboard = {
             item,

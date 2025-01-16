@@ -1,4 +1,8 @@
 // Main application initialization
+import FileManager from './fileManager.js';
+import UIManager from './uiManager.js';
+import DragDropManager from './dragDrop.js';
+
 class App {
     constructor() {
         this.fileManager = null;
@@ -7,33 +11,41 @@ class App {
         this.init();
     }
 
-    init() {
-        // Initialize file manager
-        this.fileManager = new FileManager();
+    async init() {
+        try {
+            // Initialize file manager first
+            this.fileManager = new FileManager();
 
-        // Wait for IndexedDB to be ready
-        this.fileManager.db?.addEventListener('success', () => {
-            // Initialize UI manager once database is ready
+            // Wait for file manager to initialize
+            await new Promise(resolve => {
+                const checkInit = () => {
+                    if (this.fileManager.db) {
+                        resolve();
+                    } else {
+                        setTimeout(checkInit, 100);
+                    }
+                };
+                checkInit();
+            });
+
+            // Initialize UI manager
             this.uiManager = new UIManager(this.fileManager);
-            
+
             // Initialize drag and drop manager
             this.dragDropManager = new DragDropManager(this.fileManager, this.uiManager);
-            
+
             // Bind global navigation function
             window.navigateTo = this.navigateTo.bind(this);
-            
+
+            // Initialize Feather icons
+            feather.replace();
+
             // Initial content load
-            this.loadInitialContent();
-        });
-
-        // Global error handler
-        window.onerror = (message, source, lineno, colno, error) => {
-            console.error('Global error:', error);
-            this.uiManager?.showError('An unexpected error occurred');
-        };
-
-        // Handle keyboard shortcuts globally
-        document.addEventListener('keydown', (e) => this.handleKeyboardShortcuts(e));
+            await this.loadInitialContent();
+        } catch (error) {
+            console.error('Initialization error:', error);
+            this.showError('Failed to initialize application');
+        }
     }
 
     async loadInitialContent() {
@@ -45,20 +57,25 @@ class App {
         }
     }
 
+    showError(message) {
+        const errorAlert = document.getElementById('errorAlert');
+        if (errorAlert) {
+            errorAlert.textContent = message;
+            errorAlert.style.display = 'block';
+            setTimeout(() => errorAlert.style.display = 'none', 3000);
+        }
+    }
+
     async navigateTo(path) {
         try {
-            this.uiManager.showLoading(true);
             this.fileManager.currentPath = path;
             await this.uiManager.refreshContent();
             this.uiManager.updateBreadcrumb();
         } catch (error) {
             console.error('Navigation error:', error);
-            this.uiManager.showError('Failed to navigate to folder');
-        } finally {
-            this.uiManager.showLoading(false);
+            this.showError('Failed to navigate to folder');
         }
     }
-
     handleKeyboardShortcuts(e) {
         // Only handle shortcuts if UI manager is initialized
         if (!this.uiManager) return;
