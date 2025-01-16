@@ -34,7 +34,6 @@ class UIManager {
 
         // Context menu
         document.addEventListener('click', () => this.hideContextMenu());
-        document.addEventListener('keydown', (e) => this.handleKeyboardShortcuts(e));
     }
 
     async createFolder() {
@@ -55,6 +54,56 @@ class UIManager {
 
         try {
             await this.fileManager.createItem(name, 'file', '');
+            await this.refreshContent();
+        } catch (error) {
+            this.showError(error.message);
+        }
+    }
+
+    async deleteSelected() {
+        if (this.selectedItems.size === 0) return;
+
+        if (confirm(`Delete ${this.selectedItems.size} item(s)?`)) {
+            try {
+                for (const item of this.selectedItems) {
+                    await this.fileManager.deleteItem(item.path);
+                }
+                this.selectedItems.clear();
+                await this.refreshContent();
+            } catch (error) {
+                this.showError(error.message);
+            }
+        }
+    }
+
+    async downloadSelected() {
+        for (const item of this.selectedItems) {
+            if (item.type === 'file' && item.content) {
+                const link = document.createElement('a');
+                link.href = item.content;
+                link.download = item.name;
+                link.click();
+            }
+        }
+    }
+
+    cutSelected() {
+        if (this.selectedItems.size === 1) {
+            const [item] = this.selectedItems;
+            this.fileManager.copyToClipboard(item, true);
+        }
+    }
+
+    copySelected() {
+        if (this.selectedItems.size === 1) {
+            const [item] = this.selectedItems;
+            this.fileManager.copyToClipboard(item, false);
+        }
+    }
+
+    async paste() {
+        try {
+            await this.fileManager.paste();
             await this.refreshContent();
         } catch (error) {
             this.showError(error.message);
@@ -89,6 +138,8 @@ class UIManager {
             const element = this.createItemElement(item);
             container.appendChild(element);
         });
+
+        feather.replace();
     }
 
     createItemElement(item) {
@@ -109,7 +160,6 @@ class UIManager {
         div.ondblclick = () => this.handleItemDoubleClick(item);
         div.oncontextmenu = (e) => this.showContextMenu(e, item);
 
-        feather.replace();
         return div;
     }
 
@@ -129,6 +179,67 @@ class UIManager {
             zip: 'package'
         };
         return icons[ext] || 'file';
+    }
+
+    showContextMenu(e, item) {
+        e.preventDefault();
+        this.handleItemClick(e, item);
+
+        const menu = document.getElementById('contextMenu');
+        menu.style.display = 'block';
+        menu.style.left = `${e.pageX}px`;
+        menu.style.top = `${e.pageY}px`;
+
+        const actions = menu.querySelectorAll('[data-action]');
+        actions.forEach(action => {
+            const actionType = action.dataset.action;
+            action.onclick = () => this.handleContextMenuAction(actionType, item);
+        });
+    }
+
+    hideContextMenu() {
+        document.getElementById('contextMenu').style.display = 'none';
+    }
+
+    async handleContextMenuAction(action, item) {
+        this.hideContextMenu();
+
+        try {
+            switch (action) {
+                case 'open':
+                    await this.handleItemDoubleClick(item);
+                    break;
+                case 'rename':
+                    const newName = prompt('Enter new name:', item.name);
+                    if (newName) {
+                        await this.fileManager.renameItem(item.path, newName);
+                        await this.refreshContent();
+                    }
+                    break;
+                case 'copy':
+                    this.fileManager.copyToClipboard(item, false);
+                    break;
+                case 'cut':
+                    this.fileManager.copyToClipboard(item, true);
+                    break;
+                case 'delete':
+                    if (confirm(`Delete ${item.name}?`)) {
+                        await this.fileManager.deleteItem(item.path);
+                        await this.refreshContent();
+                    }
+                    break;
+                case 'download':
+                    if (item.type === 'file' && item.content) {
+                        const link = document.createElement('a');
+                        link.href = item.content;
+                        link.download = item.name;
+                        link.click();
+                    }
+                    break;
+            }
+        } catch (error) {
+            this.showError(error.message);
+        }
     }
 
     async handleFileUpload(event) {
@@ -170,7 +281,6 @@ class UIManager {
     }
 
     handleItemClick(e, item) {
-        // Clear previous selection if not holding Ctrl/Cmd
         if (!e.ctrlKey && !e.metaKey) {
             this.selectedItems.clear();
             document.querySelectorAll('.file-item.selected').forEach(el => {
@@ -195,8 +305,6 @@ class UIManager {
             this.updateBreadcrumb();
         }
     }
-    // Additional methods for handling item selection, keyboard shortcuts, etc.
-    // would go here...
 }
 
 export default UIManager;
