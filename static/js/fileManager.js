@@ -43,19 +43,15 @@ class FileManager {
         }
     }
 
-    async loadContent(path) {
+    async itemExists(path) {
         return new Promise((resolve, reject) => {
-            try {
-                const transaction = this.db.transaction(['files'], 'readonly');
-                const store = transaction.objectStore('files');
-                const index = store.index('parentPath');
-                const request = index.getAll(path);
+            const transaction = this.db.transaction(['files'], 'readonly');
+            const store = transaction.objectStore('files');
+            const request = store.get(path);
 
-                request.onsuccess = () => resolve(request.result);
-                request.onerror = () => reject(request.error);
-            } catch (error) {
-                reject(error);
-            }
+            request.onsuccess = () => resolve(!!request.result);
+            request.onerror = () => reject(request.error);
+            transaction.onerror = () => reject(transaction.error);
         });
     }
 
@@ -66,7 +62,7 @@ class FileManager {
 
         const path = `${this.currentPath}/${name}`;
 
-        // First check if item exists
+        // Check if item exists
         const exists = await this.itemExists(path);
         if (exists) {
             throw new Error('Item already exists');
@@ -88,29 +84,42 @@ class FileManager {
             };
 
             const request = store.add(item);
-
-            transaction.oncomplete = () => resolve(item);
+            request.onsuccess = () => resolve(item);
+            request.onerror = () => reject(request.error);
             transaction.onerror = () => reject(transaction.error);
         });
     }
 
     async deleteItem(path) {
-        const transaction = this.db.transaction(['files'], 'readwrite');
-        const store = transaction.objectStore('files');
         const item = await this.getItem(path);
+        if (!item) return;
 
         if (item.type === 'folder') {
             const children = await this.loadContent(path);
-            for (const child of children) {
-                await this.deleteItem(child.path);
-            }
-        }
+            const transaction = this.db.transaction(['files'], 'readwrite');
+            const store = transaction.objectStore('files');
 
-        return new Promise((resolve, reject) => {
-            const request = store.delete(path);
-            request.onsuccess = () => resolve();
-            request.onerror = () => reject(request.error);
-        });
+            return new Promise((resolve, reject) => {
+                transaction.onerror = () => reject(transaction.error);
+
+                // Delete all children and the folder itself in one transaction
+                const deleteRequests = [...children, item].map(item => {
+                    return store.delete(item.path);
+                });
+
+                transaction.oncomplete = () => resolve();
+            });
+        } else {
+            return new Promise((resolve, reject) => {
+                const transaction = this.db.transaction(['files'], 'readwrite');
+                const store = transaction.objectStore('files');
+                const request = store.delete(path);
+
+                request.onsuccess = () => resolve();
+                request.onerror = () => reject(request.error);
+                transaction.onerror = () => reject(transaction.error);
+            });
+        }
     }
 
     async renameItem(oldPath, newName) {
@@ -136,13 +145,36 @@ class FileManager {
         });
     }
 
-    async itemExists(path) {
-        return new Promise((resolve) => {
-            const transaction = this.db.transaction(['files'], 'readonly');
-            const store = transaction.objectStore('files');
-            const request = store.get(path);
+    async moveItem(sourcePath, targetPath) {
+        // Prevent moving a folder into its own subfolder
+        if (targetPath.startsWith(sourcePath + '/')) {
+            throw new Error('Cannot move a folder into its own subfolder');
+        }
 
-            transaction.oncomplete = () => resolve(!!request.result);
+        const sourceItem = await this.getItem(sourcePath);
+        if (!sourceItem) {
+            throw new Error('Source item not found');
+        }
+
+        const transaction = this.db.transaction(['files'], 'readwrite');
+        const store = transaction.objectStore('files');
+
+        return new Promise((resolve, reject) => {
+            const newItem = {
+                ...sourceItem,
+                path: targetPath,
+                parentPath: this.currentPath,
+                modified: new Date()
+            };
+
+            const deleteRequest = store.delete(sourcePath);
+            deleteRequest.onsuccess = () => {
+                const addRequest = store.add(newItem);
+                addRequest.onsuccess = () => resolve(newItem);
+                addRequest.onerror = () => reject(addRequest.error);
+            };
+            deleteRequest.onerror = () => reject(deleteRequest.error);
+            transaction.onerror = () => reject(transaction.error);
         });
     }
 
@@ -152,20 +184,27 @@ class FileManager {
             const store = transaction.objectStore('files');
             const request = store.get(path);
 
-            transaction.oncomplete = () => resolve(request.result);
+            request.onsuccess = () => resolve(request.result);
+            request.onerror = () => reject(request.error);
             transaction.onerror = () => reject(transaction.error);
         });
     }
-    async getItems(path) {
+
+    async loadContent(path) {
         return new Promise((resolve, reject) => {
             const transaction = this.db.transaction(['files'], 'readonly');
             const store = transaction.objectStore('files');
             const index = store.index('parentPath');
             const request = index.getAll(path);
 
-            transaction.oncomplete = () => resolve(request.result);
+            request.onsuccess = () => resolve(request.result);
+            request.onerror = () => reject(request.error);
             transaction.onerror = () => reject(transaction.error);
         });
+    }
+
+    async getItems(path) {
+        return this.loadContent(path);
     }
     copyToClipboard(item, cut = false) {
         this.clipboard = {
@@ -190,23 +229,6 @@ class FileManager {
         if (operation === 'cut') {
             this.clipboard = null;
         }
-    }
-
-    async moveItem(oldPath, newPath) {
-        const item = await this.getItem(oldPath);
-        item.path = newPath;
-        item.parentPath = this.currentPath;
-        item.modified = new Date();
-
-        const transaction = this.db.transaction(['files'], 'readwrite');
-        const store = transaction.objectStore('files');
-
-        await this.deleteItem(oldPath);
-        return new Promise((resolve, reject) => {
-            const request = store.add(item);
-            request.onsuccess = () => resolve(item);
-            request.onerror = () => reject(request.error);
-        });
     }
 
     async copyItem(oldPath, newPath) {
