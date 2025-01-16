@@ -15,18 +15,7 @@ class App {
         try {
             // Initialize file manager first
             this.fileManager = new FileManager();
-
-            // Wait for file manager to initialize
-            await new Promise(resolve => {
-                const checkInit = () => {
-                    if (this.fileManager.db) {
-                        resolve();
-                    } else {
-                        setTimeout(checkInit, 100);
-                    }
-                };
-                checkInit();
-            });
+            await this.fileManager.init();
 
             // Initialize UI manager
             this.uiManager = new UIManager(this.fileManager);
@@ -53,7 +42,7 @@ class App {
             await this.uiManager.refreshContent();
         } catch (error) {
             console.error('Error loading initial content:', error);
-            this.uiManager.showError('Failed to load content');
+            this.showError('Failed to load content');
         }
     }
 
@@ -76,6 +65,7 @@ class App {
             this.showError('Failed to navigate to folder');
         }
     }
+
     handleKeyboardShortcuts(e) {
         // Only handle shortcuts if UI manager is initialized
         if (!this.uiManager) return;
@@ -120,16 +110,6 @@ class App {
                 e.preventDefault();
                 this.uiManager.clearSelection();
                 this.uiManager.hideContextMenu();
-                break;
-
-            case ctrlKey && e.key === 'n':
-                e.preventDefault();
-                this.uiManager.createFolder();
-                break;
-
-            case ctrlKey && e.key === 'u':
-                e.preventDefault();
-                document.getElementById('fileInput').click();
                 break;
         }
     }
