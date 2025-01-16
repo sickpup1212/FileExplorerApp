@@ -15,12 +15,18 @@
         <div class="sidebar" id="sidebar">
             <div class="sidebar-header">
                 <h5>File Explorer</h5>
+                <button class="sidebar-toggle" id="sidebarClose">
+                    <i data-feather="x"></i>
+                </button>
             </div>
             <div class="tree-view" id="treeView"></div>
         </div>
 
         <div class="main-content">
             <div class="toolbar">
+                <button class="sidebar-toggle" id="sidebarToggle">
+                    <i data-feather="menu"></i>
+                </button>
                 <div class="btn-group">
                     <button class="btn btn-light" id="newFolderBtn" title="New Folder">
                         <i data-feather="folder-plus"></i> <span>New Folder</span>
@@ -132,6 +138,29 @@
     <script>
         document.addEventListener('DOMContentLoaded', () => {
             feather.replace();
+
+            // Add mobile sidebar toggle functionality
+            const sidebar = document.getElementById('sidebar');
+            const sidebarToggle = document.getElementById('sidebarToggle');
+            const sidebarClose = document.getElementById('sidebarClose');
+
+            sidebarToggle.addEventListener('click', () => {
+                sidebar.classList.add('show');
+            });
+
+            sidebarClose.addEventListener('click', () => {
+                sidebar.classList.remove('show');
+            });
+
+            // Close sidebar when clicking outside on mobile
+            document.addEventListener('click', (e) => {
+                if (window.innerWidth <= 768 && 
+                    !sidebar.contains(e.target) && 
+                    !sidebarToggle.contains(e.target) &&
+                    sidebar.classList.contains('show')) {
+                    sidebar.classList.remove('show');
+                }
+            });
         });
     </script>
 
