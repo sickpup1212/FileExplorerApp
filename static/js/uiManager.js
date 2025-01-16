@@ -312,9 +312,18 @@ class UIManager {
         const previewPanel = document.getElementById('previewPanel');
         const previewContent = document.getElementById('previewContent');
         const closePreview = document.getElementById('closePreview');
+        const previewFileName = document.getElementById('previewFileName');
+        const previewFileInfo = document.getElementById('previewFileInfo');
+        const downloadPreviewBtn = document.getElementById('downloadPreviewBtn');
+        const zoomInBtn = document.getElementById('zoomInBtn');
+        const zoomOutBtn = document.getElementById('zoomOutBtn');
 
         // Clear previous content
         previewContent.innerHTML = '';
+
+        // Set file info
+        previewFileName.textContent = file.name;
+        previewFileInfo.textContent = this.formatFileInfo(file);
 
         // Show preview panel
         previewPanel.style.display = 'block';
@@ -324,24 +333,67 @@ class UIManager {
             previewPanel.style.display = 'none';
         };
 
+        // Handle download button
+        downloadPreviewBtn.onclick = () => {
+            const link = document.createElement('a');
+            link.href = file.content;
+            link.download = file.name;
+            link.click();
+        };
+
         const ext = file.name.split('.').pop().toLowerCase();
+
+        // Initialize zoom level for images
+        let zoomLevel = 1;
 
         switch (true) {
             case ['jpg', 'jpeg', 'png', 'gif'].includes(ext):
-                this.previewImage(file, previewContent);
+                this.previewImage(file, previewContent, zoomLevel);
+                // Show zoom controls
+                zoomInBtn.style.display = 'block';
+                zoomOutBtn.style.display = 'block';
+
+                zoomInBtn.onclick = () => {
+                    zoomLevel *= 1.2;
+                    this.updateImageZoom(previewContent.querySelector('.preview-image'), zoomLevel);
+                };
+
+                zoomOutBtn.onclick = () => {
+                    zoomLevel /= 1.2;
+                    this.updateImageZoom(previewContent.querySelector('.preview-image'), zoomLevel);
+                };
                 break;
-            case ['txt', 'js', 'css', 'html', 'json', 'md'].includes(ext):
+
+            case ['js', 'css', 'html', 'json', 'xml', 'py', 'java', 'cpp', 'c', 'h', 'hpp'].includes(ext):
+                this.previewCode(file, previewContent, ext);
+                zoomInBtn.style.display = 'none';
+                zoomOutBtn.style.display = 'none';
+                break;
+
+            case ['txt', 'md', 'csv'].includes(ext):
                 this.previewText(file, previewContent);
+                zoomInBtn.style.display = 'none';
+                zoomOutBtn.style.display = 'none';
                 break;
+
             case ext === 'pdf':
                 this.previewPDF(file, previewContent);
+                zoomInBtn.style.display = 'none';
+                zoomOutBtn.style.display = 'none';
                 break;
+
             case ['mp4', 'webm'].includes(ext):
                 this.previewVideo(file, previewContent);
+                zoomInBtn.style.display = 'none';
+                zoomOutBtn.style.display = 'none';
                 break;
+
             case ['mp3', 'wav'].includes(ext):
                 this.previewAudio(file, previewContent);
+                zoomInBtn.style.display = 'none';
+                zoomOutBtn.style.display = 'none';
                 break;
+
             default:
                 previewContent.innerHTML = `
                     <div class="preview-unsupported">
@@ -353,18 +405,65 @@ class UIManager {
                     </div>
                 `;
                 feather.replace();
+                zoomInBtn.style.display = 'none';
+                zoomOutBtn.style.display = 'none';
         }
     }
 
-    previewImage(file, container) {
+    formatFileInfo(file) {
+        const size = this.formatFileSize(file.content.length);
+        const date = new Date(file.modified).toLocaleString();
+        return `${size} • Modified ${date}`;
+    }
+
+    formatFileSize(bytes) {
+        if (bytes === 0) return '0 Bytes';
+        const k = 1024;
+        const sizes = ['Bytes', 'KB', 'MB', 'GB'];
+        const i = Math.floor(Math.log(bytes) / Math.log(k));
+        return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+    }
+
+    updateImageZoom(img, zoomLevel) {
+        img.style.transform = `scale(${zoomLevel})`;
+    }
+
+    previewImage(file, container, zoomLevel) {
+        const imageContainer = document.createElement('div');
+        imageContainer.className = 'preview-image-container';
+
         const img = document.createElement('img');
         img.src = file.content;
         img.className = 'preview-image';
-        container.appendChild(img);
+        img.style.transform = `scale(${zoomLevel})`;
+
+        imageContainer.appendChild(img);
+        container.appendChild(imageContainer);
+    }
+
+    previewCode(file, container, language) {
+        const pre = document.createElement('pre');
+        pre.className = 'preview-code';
+        const code = document.createElement('code');
+        code.className = `language-${language}`;
+
+        if (file.content.startsWith('data:')) {
+            fetch(file.content)
+                .then(response => response.text())
+                .then(text => {
+                    code.textContent = text;
+                    hljs.highlightElement(code);
+                });
+        } else {
+            code.textContent = file.content;
+            hljs.highlightElement(code);
+        }
+
+        pre.appendChild(code);
+        container.appendChild(pre);
     }
 
     previewText(file, container) {
-        // For base64 encoded content
         if (file.content.startsWith('data:')) {
             fetch(file.content)
                 .then(response => response.text())

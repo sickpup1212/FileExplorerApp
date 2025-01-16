@@ -139,7 +139,7 @@ body {
 }
 
 .preview-panel {
-    width: 300px;
+    width: 400px;
     border-left: 1px solid #dee2e6;
     background: white;
     display: none;
@@ -149,6 +149,7 @@ body {
     bottom: 0;
     z-index: 1000;
     box-shadow: -2px 0 5px rgba(0,0,0,0.1);
+    transition: width 0.3s ease;
 }
 
 .preview-header {
@@ -160,24 +161,54 @@ body {
     background: #f8f9fa;
 }
 
+.preview-title {
+    flex: 1;
+    min-width: 0;
+    margin-right: 1rem;
+}
+
+.preview-title h6 {
+    margin: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.preview-actions {
+    display: flex;
+    gap: 0.5rem;
+    align-items: center;
+}
+
 .preview-content {
     padding: 1rem;
     height: calc(100% - 60px);
-    overflow-y: auto;
+    overflow: auto;
+    position: relative;
+}
+
+.preview-image-container {
+    position: relative;
+    width: 100%;
+    height: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    overflow: hidden;
 }
 
 .preview-image {
     max-width: 100%;
-    height: auto;
-    display: block;
-    margin: 0 auto;
+    max-height: 100%;
+    object-fit: contain;
+    transition: transform 0.3s ease;
 }
 
 .preview-text {
     width: 100%;
     height: 100%;
     white-space: pre-wrap;
-    font-family: monospace;
+    font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', 'Consolas', monospace;
     font-size: 14px;
     line-height: 1.5;
     overflow-x: auto;
@@ -185,6 +216,25 @@ body {
     padding: 1rem;
     border-radius: 4px;
     margin: 0;
+}
+
+.preview-code {
+    width: 100%;
+    height: 100%;
+    overflow: auto;
+    background: #ffffff;
+    border-radius: 4px;
+}
+
+.preview-code pre {
+    margin: 0;
+    padding: 1rem;
+}
+
+.preview-code code {
+    font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', 'Consolas', monospace;
+    font-size: 14px;
+    line-height: 1.5;
 }
 
 .preview-pdf {
@@ -204,17 +254,28 @@ body {
 .preview-unsupported {
     text-align: center;
     padding: 2rem;
+    color: #6c757d;
 }
 
 .preview-unsupported i {
     font-size: 3rem;
     margin-bottom: 1rem;
-    color: #6c757d;
 }
 
 .preview-unsupported p {
     margin-bottom: 1rem;
-    color: #6c757d;
+}
+
+.zoom-controls {
+    position: absolute;
+    bottom: 1rem;
+    right: 1rem;
+    display: flex;
+    gap: 0.5rem;
+    background: rgba(255, 255, 255, 0.9);
+    padding: 0.5rem;
+    border-radius: 4px;
+    box-shadow: 0 2px 5px rgba(0,0,0,0.1);
 }
 
 [data-feather] {
@@ -231,7 +292,6 @@ body {
     .explorer {
         grid-template-columns: 1fr;
     }
-    
     .sidebar {
         display: none;
     }
