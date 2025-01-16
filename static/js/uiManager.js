@@ -303,7 +303,106 @@ class UIManager {
             this.fileManager.currentPath = item.path;
             await this.refreshContent();
             this.updateBreadcrumb();
+        } else {
+            this.previewFile(item);
         }
+    }
+
+    previewFile(file) {
+        const previewPanel = document.getElementById('previewPanel');
+        const previewContent = document.getElementById('previewContent');
+        const closePreview = document.getElementById('closePreview');
+
+        // Clear previous content
+        previewContent.innerHTML = '';
+
+        // Show preview panel
+        previewPanel.style.display = 'block';
+
+        // Handle close button
+        closePreview.onclick = () => {
+            previewPanel.style.display = 'none';
+        };
+
+        const ext = file.name.split('.').pop().toLowerCase();
+
+        switch (true) {
+            case ['jpg', 'jpeg', 'png', 'gif'].includes(ext):
+                this.previewImage(file, previewContent);
+                break;
+            case ['txt', 'js', 'css', 'html', 'json', 'md'].includes(ext):
+                this.previewText(file, previewContent);
+                break;
+            case ext === 'pdf':
+                this.previewPDF(file, previewContent);
+                break;
+            case ['mp4', 'webm'].includes(ext):
+                this.previewVideo(file, previewContent);
+                break;
+            case ['mp3', 'wav'].includes(ext):
+                this.previewAudio(file, previewContent);
+                break;
+            default:
+                previewContent.innerHTML = `
+                    <div class="preview-unsupported">
+                        <i data-feather="file-text"></i>
+                        <p>Preview not available for ${file.name}</p>
+                        <button class="btn btn-primary" onclick="window.open('${file.content}', '_blank')">
+                            Open File
+                        </button>
+                    </div>
+                `;
+                feather.replace();
+        }
+    }
+
+    previewImage(file, container) {
+        const img = document.createElement('img');
+        img.src = file.content;
+        img.className = 'preview-image';
+        container.appendChild(img);
+    }
+
+    previewText(file, container) {
+        // For base64 encoded content
+        if (file.content.startsWith('data:')) {
+            fetch(file.content)
+                .then(response => response.text())
+                .then(text => {
+                    const pre = document.createElement('pre');
+                    pre.className = 'preview-text';
+                    pre.textContent = text;
+                    container.appendChild(pre);
+                });
+        } else {
+            const pre = document.createElement('pre');
+            pre.className = 'preview-text';
+            pre.textContent = file.content;
+            container.appendChild(pre);
+        }
+    }
+
+    previewPDF(file, container) {
+        const iframe = document.createElement('iframe');
+        iframe.src = file.content;
+        iframe.className = 'preview-pdf';
+        container.appendChild(iframe);
+    }
+
+    previewVideo(file, container) {
+        const video = document.createElement('video');
+        video.src = file.content;
+        video.className = 'preview-video';
+        video.controls = true;
+        container.appendChild(video);
+    }
+
+    previewAudio(file, container) {
+        const audio = document.createElement('audio');
+        audio.src = file.content;
+        audio.className = 'preview-audio';
+        audio.controls = true;
+        container.appendChild(audio);
     }
 }
 
