@@ -121,6 +121,9 @@
         <div class="context-menu-item" data-action="rename">
             <i data-feather="edit"></i> Rename
         </div>
+        <div class="context-menu-item" data-action="share">
+            <i data-feather="share-2"></i> Share
+        </div>
         <div class="context-menu-item" data-action="copy">
             <i data-feather="copy"></i> Copy
         </div>
@@ -132,6 +135,32 @@
         </div>
         <div class="context-menu-item" data-action="download">
             <i data-feather="download"></i> Download
+        </div>
+    </div>
+
+    <div class="modal fade" id="shareDialog" tabindex="-1" aria-labelledby="shareDialogLabel" aria-hidden="true">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title" id="shareDialogLabel">Share File</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body">
+                    <div class="mb-3">
+                        <label for="shareLink" class="form-label">Share Link</label>
+                        <div class="input-group">
+                            <input type="text" class="form-control" id="shareLink" readonly>
+                            <button class="btn btn-outline-secondary" type="button" id="copyShareLink">
+                                <i data-feather="copy"></i> Copy
+                            </button>
+                        </div>
+                    </div>
+                    <small class="text-muted">This link will expire in 7 days</small>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+                </div>
+            </div>
         </div>
     </div>
 

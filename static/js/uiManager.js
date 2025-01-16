@@ -236,6 +236,13 @@ class UIManager {
                         link.click();
                     }
                     break;
+                case 'share':
+                    if (item.type === 'file') {
+                        const shareId = await this.fileManager.generateShareLink(item);
+                        const shareLink = `${window.location.origin}/share/${shareId}`;
+                        this.showShareDialog(shareLink);
+                    }
+                    break;
             }
         } catch (error) {
             this.showError(error.message);
@@ -502,6 +509,34 @@ class UIManager {
         audio.className = 'preview-audio';
         audio.controls = true;
         container.appendChild(audio);
+    }
+
+    showShareDialog(shareLink) {
+        const shareDialog = new bootstrap.Modal(document.getElementById('shareDialog'));
+        const shareLinkInput = document.getElementById('shareLink');
+        const copyButton = document.getElementById('copyShareLink');
+
+        shareLinkInput.value = shareLink;
+
+        copyButton.onclick = () => {
+            shareLinkInput.select();
+            document.execCommand('copy');
+            this.showSuccess('Link copied to clipboard!');
+        };
+
+        shareDialog.show();
+    }
+
+    showSuccess(message) {
+        const successAlert = document.createElement('div');
+        successAlert.className = 'alert alert-success alert-dismissible fade show position-fixed bottom-0 end-0 m-3';
+        successAlert.setAttribute('role', 'alert');
+        successAlert.innerHTML = `
+            ${message}
+            <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+        `;
+        document.body.appendChild(successAlert);
+        setTimeout(() => successAlert.remove(), 3000);
     }
 }
 

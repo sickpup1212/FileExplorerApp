@@ -10,12 +10,14 @@ class FileManager {
     async init() {
         try {
             await new Promise((resolve, reject) => {
-                const request = indexedDB.open('FileExplorerDB', 2);
+                const request = indexedDB.open('FileExplorerDB', 3); // Increment version for new store
 
                 request.onerror = () => reject(request.error);
 
                 request.onupgradeneeded = (event) => {
                     const db = event.target.result;
+
+                    // Create files store if it doesn't exist
                     if (!db.objectStoreNames.contains('files')) {
                         const store = db.createObjectStore('files', { keyPath: 'path' });
                         store.createIndex('parentPath', 'parentPath', { unique: false });
@@ -29,6 +31,12 @@ class FileManager {
                             modified: new Date(),
                             size: 0
                         });
+                    }
+
+                    // Create shares store if it doesn't exist
+                    if (!db.objectStoreNames.contains('shares')) {
+                        const sharesStore = db.createObjectStore('shares', { keyPath: 'shareId' });
+                        sharesStore.createIndex('expires', 'expires', { unique: false });
                     }
                 };
 
@@ -247,6 +255,49 @@ class FileManager {
         return new Promise((resolve, reject) => {
             const request = store.add(newItem);
             request.onsuccess = () => resolve(newItem);
+            request.onerror = () => reject(request.error);
+        });
+    }
+
+    async generateShareLink(item) {
+        const shareId = Math.random().toString(36).substring(2) + Date.now().toString(36);
+
+        const sharedItem = {
+            shareId,
+            originalPath: item.path,
+            name: item.name,
+            type: item.type,
+            content: item.content,
+            created: new Date(),
+            expires: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000) // 7 days expiry
+        };
+
+        // Store shared item in IndexedDB
+        const transaction = this.db.transaction(['shares'], 'readwrite');
+        const store = transaction.objectStore('shares');
+
+        return new Promise((resolve, reject) => {
+            const request = store.add(sharedItem);
+            request.onsuccess = () => resolve(shareId);
+            request.onerror = () => reject(request.error);
+            transaction.onerror = () => reject(transaction.error);
+        });
+    }
+
+    async getSharedItem(shareId) {
+        const transaction = this.db.transaction(['shares'], 'readonly');
+        const store = transaction.objectStore('shares');
+
+        return new Promise((resolve, reject) => {
+            const request = store.get(shareId);
+            request.onsuccess = () => {
+                const item = request.result;
+                if (!item || new Date(item.expires) < new Date()) {
+                    resolve(null);
+                } else {
+                    resolve(item);
+                }
+            };
             request.onerror = () => reject(request.error);
         });
     }
