@@ -1,0 +1,234 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Password Generator</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-gray-100 min-h-screen flex items-center justify-center p-4">
+    <div class="max-w-md mx-auto bg-white rounded-lg shadow-lg p-6 space-y-4">
+        <div class="text-center">
+            <h2 class="text-2xl font-bold text-gray-800 mb-4">Password Generator</h2>
+        </div>
+        
+        <div class="bg-gray-100 p-4 rounded-md">
+            <div class="flex items-center justify-between">
+                <input 
+                    type="text" 
+                    id="passwordOutput"
+                    readonly 
+                    placeholder="Generated Password" 
+                    class="w-full bg-white border border-gray-300 rounded-md px-3 py-2 mr-2 text-gray-700"
+                />
+                <button 
+                    id="copyButton"
+                    class="bg-blue-500 text-white px-4 py-2 rounded-md hover:bg-blue-600 transition"
+                >
+                    Copy
+                </button>
+            </div>
+        </div>
+        
+        <div class="space-y-4">
+            <div>
+                <label class="block text-gray-700 mb-2">Password Length</label>
+                <input 
+                    type="range" 
+                    id="lengthSlider"
+                    min="8" 
+                    max="32" 
+                    value="16"
+                    class="w-full h-2 bg-gray-200 rounded-md appearance-none cursor-pointer"
+                />
+                <span id="lengthValue" class="text-sm text-gray-600 mt-1 block text-center">16</span>
+            </div>
+            
+            <div class="space-y-2">
+                <div class="flex items-center">
+                    <input type="checkbox" id="lowercaseCheck" checked class="mr-2 rounded text-blue-500 focus:ring-blue-400"/>
+                    <span>Lowercase</span>
+                </div>
+                <div class="flex items-center">
+                    <input type="checkbox" id="numbersCheck" checked class="mr-2 rounded text-blue-500 focus:ring-blue-400"/>
+                    <span>Numbers</span>
+                </div>
+                <div class="flex items-center">
+                    <input type="checkbox" id="symbolsCheck" checked class="mr-2 rounded text-blue-500 focus:ring-blue-400"/>
+                    <span>Symbols</span>
+                </div>
+ <div class="flex items-center">
+    <input type="checkbox" id="showPasswordCheck" class="mr-2 rounded text-blue-500 focus:ring-blue-400"/>
+    <span>Show Password</span>
+</div>
+            </div>
+        </div>
+        
+        <div class="text-center space-y-2">
+            <button id="generateButton" class="w-full bg-green-500 text-white py-3 rounded-md hover:bg-green-600 transition">
+                Generate Password
+            </button>
+            <button id="saveEntryButton" class="w-full bg-blue-500 text-white py-3 rounded-md hover:bg-blue-600 transition">
+                Save Entry
+            </button>
+        </div>
+    </div>
+
+    <!-- Modal -->
+    <div id="modal" class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center hidden">
+        <div class="bg-white p-6 rounded-lg shadow-lg max-w-md w-full relative">
+            <button id="closeModal" class="absolute top-2 right-2 text-gray-600 hover:text-black">â</button>
+            <h2 class="text-xl font-bold mb-4">Save Entry</h2>
+
+            <label class="block text-gray-700">Database</label>
+            <select id="databaseSelect" class="w-full border border-gray-300 rounded-md px-3 py-2 mb-3">
+                <option value="db1">Database 1</option>
+                <option value="db2">Database 2</option>
+                <option value="db3">Database 3</option>
+            </select>
+
+            <h2 class="text-lg font-bold mt-4 mb-2">More Fields</h2>
+
+            <label class="block text-gray-700">Site</label>
+            <input type="text" id="siteInput" class="w-full border border-gray-300 rounded-md px-3 py-2 mb-3"/>
+
+            <label class="block text-gray-700">Username</label>
+            <input type="text" id="usernameInput" class="w-full border border-gray-300 rounded-md px-3 py-2 mb-3"/>
+
+            <label class="block text-gray-700">Password</label>
+            <input type="text" id="modalPassword" class="w-full border border-gray-300 rounded-md px-3 py-2 mb-3"/>
+            
+<!-- Add inside the modal, preferably near the password input -->
+<div class="flex items-center mt-2">
+    <input type="checkbox" id="modalShowPasswordCheck" class="mr-2 rounded text-blue-500 focus:ring-blue-400"/>
+    <span>Show Password</span>
+</div>
+            <label class="block text-gray-700">Additional Info</label>
+            <textarea id="additionalInfo" class="w-full border border-gray-300 rounded-md px-3 py-2 mb-3"></textarea>
+
+            <button id="saveButton" class="w-full bg-green-500 text-white py-3 rounded-md hover:bg-green-600 transition">
+                Save
+            </button>
+        </div>
+    </div>
+
+    <script>
+        const passwordOutput = document.getElementById('passwordOutput');
+        const copyButton = document.getElementById('copyButton');
+        const lengthSlider = document.getElementById('lengthSlider');
+        const lengthValue = document.getElementById('lengthValue');
+        const lowercaseCheck = document.getElementById('lowercaseCheck');
+        const numbersCheck = document.getElementById('numbersCheck');
+        const symbolsCheck = document.getElementById('symbolsCheck');
+        const generateButton = document.getElementById('generateButton');
+        const saveEntryButton = document.getElementById('saveEntryButton');
+        const modal = document.getElementById('modal');
+        const closeModal = document.getElementById('closeModal');
+        const saveButton = document.getElementById('saveButton');
+        const databaseSelect = document.getElementById('databaseSelect');
+        const siteInput = document.getElementById('siteInput');
+        const usernameInput = document.getElementById('usernameInput');
+        const modalPassword = document.getElementById('modalPassword');
+        const additionalInfo = document.getElementById('additionalInfo');
+
+        const lowercase = 'abcdefghijklmnopqrstuvwxyz';
+        const uppercase = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
+        const numbers = '0123456789';
+        const symbols = '!@#$%^&*()_+-=[]{}|;:,.<>?';
+
+        lengthSlider.addEventListener('input', () => {
+            lengthValue.textContent = lengthSlider.value;
+        });
+
+        function generatePassword() {
+            let chars = uppercase;
+            let password = '';
+
+            if (lowercaseCheck.checked) chars += lowercase;
+            if (numbersCheck.checked) chars += numbers;
+            if (symbolsCheck.checked) chars += symbols;
+
+            if (chars.length === 0) {
+                alert('Please select at least one character type');
+                return;
+            }
+
+            const length = parseInt(lengthSlider.value);
+            for (let i = 0; i < length; i++) {
+                const randomIndex = Math.floor(Math.random() * chars.length);
+                password += chars[randomIndex];
+            }
+
+            passwordOutput.value = password;
+            modalPassword.value = password;
+        }
+
+        async function copyPassword() {
+            if (!passwordOutput.value) {
+                alert('Generate a password first');
+                return;
+            }
+
+            try {
+                await navigator.clipboard.writeText(passwordOutput.value);
+                copyButton.textContent = 'Copied!';
+                setTimeout(() => copyButton.textContent = 'Copy', 1500);
+            } catch {
+                alert('Failed to copy password');
+            }
+        }
+
+        saveEntryButton.addEventListener('click', () => {
+            modal.classList.remove('hidden');
+        });
+
+        closeModal.addEventListener('click', () => {
+            modal.classList.add('hidden');
+        });
+
+        saveButton.addEventListener('click', () => {
+            const data = {
+                database: databaseSelect.value,
+                site: siteInput.value,
+                username: usernameInput.value,
+                password: modalPassword.value,
+                additionalInfo: additionalInfo.value,
+            };
+            console.log(data);
+        });
+
+        generateButton.addEventListener('click', generatePassword);
+        copyButton.addEventListener('click', copyPassword);
+
+        generatePassword();
+
+const showPasswordCheck = document.getElementById('showPasswordCheck');
+const modalShowPasswordCheck = document.getElementById('modalShowPasswordCheck');
+
+function togglePasswordVisibility(show, inputField) {
+    inputField.type = show ? 'text' : 'password';
+}
+function syncPasswordVisibility() {
+    modalShowPasswordCheck.checked = showPasswordCheck.checked;
+    togglePasswordVisibility(showPasswordCheck.checked, modalPassword);
+}
+function syncModalVisibility() {
+    showPasswordCheck.checked = modalShowPasswordCheck.checked;
+    togglePasswordVisibility(modalShowPasswordCheck.checked, passwordOutput);
+}
+showPasswordCheck.addEventListener('change', () => {
+    togglePasswordVisibility(showPasswordCheck.checked, passwordOutput);
+    syncPasswordVisibility();
+});
+
+modalShowPasswordCheck.addEventListener('change', () => {
+    togglePasswordVisibility(modalShowPasswordCheck.checked, modalPassword);
+    syncModalVisibility();
+});
+saveEntryButton.addEventListener('click', () => {
+    syncPasswordVisibility();
+});
+
+    </script>
+</body>
+</html>

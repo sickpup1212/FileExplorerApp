@@ -1,0 +1,248 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI Chat UI</title>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/fullstyles.css') }}">
+</head>
+<body>
+    <div class="app-container">
+        <div class="sidebar" id="sidebar">
+            <div class="sidebar-header">
+                <div class="tab-container">
+                    <button class="tab-btn active" data-tab="files">Files</button>
+                    <button class="tab-btn" data-tab="doc">Doc</button>
+                </div>
+                <button class="close-sidebar" id="closeSidebar">
+                    <i class="fas fa-times"></i>
+                </button>
+            </div>
+            <div class="sidebar-content">
+                <div id="files-content" class="tab-content active">
+                    <div class="upload-container">
+                        <div class="upload-buttons">
+                            <button class="upload-btn upload-host" id="uploadHostButton">
+                                <i class="fas fa-upload"></i>
+                                Upload Host
+                            </button>
+                            <button class="upload-btn upload-local" id="uploadLocalButton">
+                                <i class="fas fa-folder-open"></i>
+                                Upload Local
+                            </button>
+                        </div>
+                        <input type="file" id="fileInput" style="display: none" multiple>
+                    </div>
+                    <div class="files-list" id="filesList">
+                        <template id="fileItemTemplate">
+                            <div class="file-item">
+                                <div class="file-icon">
+                                    <i class="fas fa-file"></i>
+                                </div>
+                                <div class="file-details">
+                                    <div class="file-name"></div>
+                                    <div class="file-size"></div>
+                                </div>
+                                <button class="file-delete">
+                                    <i class="fas fa-trash"></i>
+                                </button>
+                            </div>
+                        </template>
+                    </div>
+                </div>
+                <div id="doc-content" class="tab-content">
+                    <textarea class="editor-textarea" placeholder="Enter your document text here..."></textarea>
+                </div>
+            </div>
+        </div>
+
+        <div class="main-content">
+            <div class="chat-header">
+                <button class="menu-toggle" id="menuToggle">
+                    <i class="fas fa-bars"></i>
+                </button>
+                <h1>AI Chat</h1>
+                <div class="header-icons" style="display: flex; gap: 1rem; align-items: center;">
+                    <button class="icon-btn">
+                        <i class="fas fa-user"></i>
+                    </button>
+                    <button class="icon-btn">
+                        <i class="fas fa-cog"></i>
+                    </button>
+                    <button class="copy-btn">
+                        <i class="fas fa-copy"></i>
+                    </button>
+                </div>
+            </div>
+
+            <div class="chat-container" id="chatContainer">
+                <div class="message user-message">
+                    <div class="message-content">hi</div>
+                </div>
+                <div class="message ai-message">
+                    <div class="message-label">AI response to: hi</div>
+                </div>
+                <div class="message user-message">
+                    <div class="message-content">Chicken Nuggets</div>
+                </div>
+                <div class="message ai-message">
+                    <div class="message-label">AI response to: Chicken Nuggets</div>
+                </div>
+            </div>
+
+            <div class="input-container">
+                <input type="text" id="messageInput" placeholder="Type your message...">
+                <button class="send-btn">
+                    <i class="fas fa-paper-plane"></i>
+                    Send
+                </button>
+            </div>
+        </div>
+    </div>
+    <script>
+    document.addEventListener('DOMContentLoaded', () => {
+        const sidebar = document.getElementById('sidebar');
+        const mainContent = document.querySelector('.main-content');
+        const menuToggle = document.getElementById('menuToggle');
+        const closeSidebar = document.getElementById('closeSidebar');
+        const messageInput = document.getElementById('messageInput');
+        const sendButton = document.querySelector('.send-btn');
+        const chatContainer = document.getElementById('chatContainer');
+        const fileInput = document.getElementById('fileInput');
+        const filesList = document.getElementById('filesList');
+        const fileItemTemplate = document.getElementById('fileItemTemplate');
+        const tabButtons = document.querySelectorAll('.tab-btn');
+        const tabContents = document.querySelectorAll('.tab-content');
+        const uploadHostButton = document.getElementById('uploadHostButton');
+        const uploadLocalButton = document.getElementById('uploadLocalButton');
+
+        tabButtons.forEach(button => {
+            button.addEventListener('click', () => {
+                const tabId = button.getAttribute('data-tab');
+
+                tabButtons.forEach(btn => btn.classList.remove('active'));
+                button.classList.add('active');
+
+                // Update active tab content
+                tabContents.forEach(content => {
+                    content.classList.remove('active');
+                    if (content.id === `${tabId}-content`) {
+                        content.classList.add('active');
+                    }
+                });
+            });
+        });
+
+        function toggleSidebar() {
+            sidebar.classList.toggle('active');
+            mainContent.classList.toggle('sidebar-active');
+        }
+
+        menuToggle.addEventListener('click', toggleSidebar);
+        closeSidebar.addEventListener('click', toggleSidebar);
+        
+        document.addEventListener('click', (e) => {
+            if (window.innerWidth <= 768) {
+                if (!sidebar.contains(e.target) && 
+                    !menuToggle.contains(e.target) && 
+                    sidebar.classList.contains('active')) {
+                    toggleSidebar();
+                }
+            }
+        });
+
+        // Handle host file upload (system files)
+        uploadHostButton.addEventListener('click', () => {
+            fileInput.click();
+        });
+
+        // Handle local file upload (from File Explorer)
+        uploadLocalButton.addEventListener('click', () => {
+            // Redirect to File Explorer
+            window.location.href = '/';
+        });
+
+        // Check for content from Doc Chat Edit action
+        window.addEventListener('DOMContentLoaded', () => {
+            const docContent = sessionStorage.getItem('docChatEditContent');
+            if (docContent) {
+                // Find the Doc textarea and populate it
+                const docTextarea = document.querySelector('#doc-content textarea');
+                if (docTextarea) {
+                    docTextarea.value = docContent;
+                }
+                // Clear the session storage
+                sessionStorage.removeItem('docChatEditContent');
+            }
+        });
+
+        fileInput.addEventListener('change', (e) => {
+            const files = e.target.files;
+            Array.from(files).forEach(file => {
+                addFileToList(file);
+            });
+        });
+
+        function addFileToList(file) {
+            const fileItem = fileItemTemplate.content.cloneNode(true);
+
+            // Set file name and size
+            fileItem.querySelector('.file-name').textContent = file.name;
+            fileItem.querySelector('.file-size').textContent = formatFileSize(file.size);
+
+            // Set appropriate icon based on file type
+            const fileIcon = fileItem.querySelector('.file-icon i');
+            if (file.type.startsWith('image/')) {
+                fileIcon.className = 'fas fa-image';
+            } else if (file.type.startsWith('text/')) {
+                fileIcon.className = 'fas fa-file-alt';
+            } else if (file.type.startsWith('application/pdf')) {
+                fileIcon.className = 'fas fa-file-pdf';
+            } else {
+                fileIcon.className = 'fas fa-file';
+            }
+
+            // Add delete functionality
+            const deleteBtn = fileItem.querySelector('.file-delete');
+            deleteBtn.addEventListener('click', (e) => {
+                e.target.closest('.file-item').remove();
+            });
+
+            filesList.appendChild(fileItem);
+        }
+
+        function formatFileSize(bytes) {
+            if (bytes === 0) return '0 Bytes';
+            const k = 1024;
+            const sizes = ['Bytes', 'KB', 'MB', 'GB'];
+            const i = Math.floor(Math.log(bytes) / Math.log(k));
+            return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+        }
+
+        // Chat functionality
+        function sendMessage() {
+            const message = messageInput.value.trim();
+            if (message) {
+                // Add user message
+                const userMessageDiv = document.createElement('div');
+                userMessageDiv.className = 'message user-message';
+                userMessageDiv.innerHTML = `<div class="message-content">${message}</div>`;
+                chatContainer.appendChild(userMessageDiv);
+
+                // Clear input and scroll to bottom
+                messageInput.value = '';
+                chatContainer.scrollTop = chatContainer.scrollHeight;
+            }
+        }
+
+        sendButton.addEventListener('click', sendMessage);
+        messageInput.addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') {
+                sendMessage();
+            }
+        });
+    });
+    </script>
+</body>
+</html>

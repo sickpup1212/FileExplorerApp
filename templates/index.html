@@ -1,0 +1,239 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Modern File Explorer</title>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/highlight.js@11.8.0/styles/github.min.css">
+    <script src="https://cdn.jsdelivr.net/npm/feather-icons/dist/feather.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/highlight.js@11.8.0/lib/highlight.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@popperjs/core@2.11.8/dist/umd/popper.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.min.js"></script>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/styles.css') }}">
+</head>
+<body>
+    <div class="explorer">
+        <div class="sidebar" id="sidebar">
+            <div class="sidebar-header">
+                <h5>Navigation</h5>
+                <button class="sidebar-toggle" id="sidebarClose">
+                    <i data-feather="x"></i>
+                </button>
+            </div>
+            <div class="nav-links">
+                <a href="/" class="nav-link active">
+                    <i data-feather="folder"></i>
+                    File Explorer
+                </a>
+                <a href="/editor" class="nav-link">
+                    <i data-feather="edit-2"></i>
+                    Text Editor
+                </a>
+                <a href="/password-manager" class="nav-link">
+                    <i data-feather="key"></i>
+                    Password Manager
+                </a>
+                <a href="/document-chat" class="nav-link">
+                    <i data-feather="message-square"></i>
+                    Document Chat
+                </a>
+                <a href="/logout" class="nav-link">
+                    <i data-feather="log-out"></i>
+                    Logout
+                </a>
+            </div>
+            <div class="tree-view" id="treeView"></div>
+        </div>
+
+        <div class="main-content">
+            <div class="toolbar-container">
+                <div class="toolbar top-toolbar">
+                    <button class="sidebar-toggle" id="sidebarToggle">
+                        <i data-feather="menu"></i>
+                    </button>
+                    <div class="btn-group">
+                        <button class="btn btn-light" id="newFolderBtn" title="New Folder">
+                            <i data-feather="folder-plus"></i> <span>New Folder</span>
+                        </button>
+                        <button class="btn btn-light" id="newFileBtn" title="New File">
+                            <i data-feather="file-plus"></i> <span>New File</span>
+                        </button>
+                        <button class="btn btn-light" id="uploadBtn" title="Upload">
+                            <i data-feather="upload"></i> <span>Upload</span>
+                        </button>
+                    </div>
+
+                    <div class="btn-group ms-2">
+                        <button class="btn btn-light" id="cutBtn" title="Cut">
+                            <i data-feather="scissors"></i> <span>Cut</span>
+                        </button>
+                        <button class="btn btn-light" id="copyBtn" title="Copy">
+                            <i data-feather="copy"></i> <span>Copy</span>
+                        </button>
+                        <button class="btn btn-light" id="pasteBtn" title="Paste">
+                            <i data-feather="clipboard"></i> <span>Paste</span>
+                        </button>
+                    </div>
+                </div>
+
+                <div class="toolbar bottom-toolbar">
+                    <div class="btn-group">
+                        <button class="btn btn-light d-none" id="mobileEditBtn" title="Edit">
+                            <i data-feather="edit-2"></i> <span>Edit</span>
+                        </button>
+                        <button class="btn btn-light" id="deleteBtn" title="Delete">
+                            <i data-feather="trash-2"></i> <span>Delete</span>
+                        </button>
+                        <button class="btn btn-light" id="downloadBtn" title="Download">
+                            <i data-feather="download"></i> <span>Download</span>
+                        </button>
+                    </div>
+
+                    <div class="btn-group ms-2">
+                        <button class="btn btn-light" id="listViewBtn" title="List View">
+                            <i data-feather="list"></i> <span>List</span>
+                        </button>
+                        <button class="btn btn-light" id="gridViewBtn" title="Grid View">
+                            <i data-feather="grid"></i> <span>Grid</span>
+                        </button>
+                    </div>
+                </div>
+            </div>
+            <div class="breadcrumb-container">
+                <nav aria-label="breadcrumb">
+                    <ol class="breadcrumb" id="breadcrumb"></ol>
+                </nav>
+            </div>
+
+            <div class="alert alert-danger" id="errorAlert" role="alert" style="display: none;"></div>
+
+            <div class="content-area" id="contentArea">
+                <div class="files-container" id="filesContainer"></div>
+            </div>
+
+            <div class="preview-panel" id="previewPanel">
+                <div class="preview-header">
+                    <div class="preview-title">
+                        <h6 class="mb-0" id="previewFileName"></h6>
+                        <small class="text-muted" id="previewFileInfo"></small>
+                    </div>
+                    <div class="preview-actions">
+                        <button class="btn btn-sm btn-light" id="zoomInBtn" title="Zoom In">
+                            <i data-feather="zoom-in"></i>
+                        </button>
+                        <button class="btn btn-sm btn-light" id="zoomOutBtn" title="Zoom Out">
+                            <i data-feather="zoom-out"></i>
+                        </button>
+                        <button class="btn btn-sm btn-light" id="downloadPreviewBtn" title="Download">
+                            <i data-feather="download"></i>
+                        </button>
+                        <button class="btn-close" id="closePreview"></button>
+                    </div>
+                </div>
+                <div class="preview-content" id="previewContent"></div>
+            </div>
+        </div>
+    </div>
+
+    <div class="loading-overlay" id="loadingOverlay">
+        <div class="spinner-border text-light" role="status">
+            <span class="visually-hidden">Loading...</span>
+        </div>
+    </div>
+
+    <input type="file" id="fileInput" multiple style="display: none">
+
+    <div class="context-menu" id="contextMenu">
+            <div class="context-menu-item" data-action="open">
+                <i data-feather="folder"></i> Open
+            </div>
+            <div class="context-menu-item" data-action="edit">
+                <i data-feather="edit-2"></i> Open/Edit
+                <div class="context-submenu">
+                    <div class="context-menu-item" data-action="openTextEditor">
+                        <i data-feather="edit-2"></i> Text Editor
+                    </div>
+                    <div class="context-menu-item" data-action="openDocChatFiles">
+                        <i data-feather="file-text"></i> Doc Chat Files
+                    </div>
+                    <div class="context-menu-item" data-action="openDocChatEdit">
+                        <i data-feather="message-square"></i> Doc Chat Edit
+                    </div>
+                </div>
+            </div>
+            <div class="context-menu-item" data-action="rename">
+                <i data-feather="edit"></i> Rename
+            </div>
+            <div class="context-menu-item" data-action="share">
+                <i data-feather="share-2"></i> Share
+            </div>
+            <div class="context-menu-item" data-action="copy">
+                <i data-feather="copy"></i> Copy
+            </div>
+            <div class="context-menu-item" data-action="cut">
+                <i data-feather="scissors"></i> Cut
+            </div>
+            <div class="context-menu-item" data-action="delete">
+                <i data-feather="trash-2"></i> Delete
+            </div>
+            <div class="context-menu-item" data-action="download">
+                <i data-feather="download"></i> Download
+            </div>
+        </div>
+
+    <div class="modal fade" id="shareDialog" tabindex="-1" aria-labelledby="shareDialogLabel" aria-hidden="true">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title" id="shareDialogLabel">Share File</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body">
+                    <div class="mb-3">
+                        <label for="shareLink" class="form-label">Share Link</label>
+                        <div class="input-group">
+                            <input type="text" class="form-control" id="shareLink" readonly>
+                            <button class="btn btn-outline-secondary" type="button" id="copyShareLink">
+                                <i data-feather="copy"></i> Copy
+                            </button>
+                        </div>
+                    </div>
+                    <small class="text-muted">This link will expire in 7 days</small>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        document.addEventListener('DOMContentLoaded', () => {
+            const sidebar = document.getElementById('sidebar');
+            const sidebarToggle = document.getElementById('sidebarToggle');
+            const sidebarClose = document.getElementById('sidebarClose');
+
+            sidebarToggle.addEventListener('click', () => {
+                sidebar.classList.add('show');
+            });
+
+            sidebarClose.addEventListener('click', () => {
+                sidebar.classList.remove('show');
+            });
+
+            // Close sidebar when clicking outside on mobile
+            document.addEventListener('click', (e) => {
+                if (window.innerWidth <= 768 && 
+                    !sidebar.contains(e.target) && 
+                    !sidebarToggle.contains(e.target) &&
+                    sidebar.classList.contains('show')) {
+                    sidebar.classList.remove('show');
+                }
+            });
+        });
+    </script>
+
+    <script type="module" src="{{ url_for('static', filename='js/app.js') }}"></script>
+</body>
+</html>

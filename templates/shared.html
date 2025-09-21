@@ -1,0 +1,143 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Shared File - Modern File Explorer</title>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/highlight.js@11.8.0/styles/github.min.css">
+    <script src="https://cdn.jsdelivr.net/npm/feather-icons/dist/feather.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/highlight.js@11.8.0/lib/highlight.min.js"></script>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/styles.css') }}">
+    <style>
+        .shared-content {
+            max-width: 1200px;
+            margin: 2rem auto;
+            padding: 0 1rem;
+        }
+        .preview-panel {
+            position: static;
+            width: 100%;
+            display: block;
+            box-shadow: 0 0 10px rgba(0,0,0,0.1);
+        }
+    </style>
+</head>
+<body>
+    <div class="shared-content">
+        <div class="preview-panel">
+            <div class="preview-header">
+                <div class="preview-title">
+                    <h6 class="mb-0" id="previewFileName">Loading...</h6>
+                    <small class="text-muted" id="previewFileInfo"></small>
+                </div>
+                <div class="preview-actions">
+                    <button class="btn btn-sm btn-light" id="downloadBtn" title="Download">
+                        <i data-feather="download"></i>
+                    </button>
+                </div>
+            </div>
+            <div class="preview-content" id="previewContent">
+                <div class="d-flex justify-content-center align-items-center h-100">
+                    <div class="spinner-border text-primary" role="status">
+                        <span class="visually-hidden">Loading...</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+        <div class="alert alert-danger mt-3" id="errorAlert" style="display: none;">
+            This shared file has expired or doesn't exist.
+        </div>
+    </div>
+
+    <script>
+        document.addEventListener('DOMContentLoaded', () => {
+            feather.replace();
+        });
+    </script>
+    <script type="module">
+        import FileManager from "{{ url_for('static', filename='js/fileManager.js') }}";
+        
+        const shareId = "{{ share_id }}";
+        const fileManager = new FileManager();
+        const previewContent = document.getElementById('previewContent');
+        const previewFileName = document.getElementById('previewFileName');
+        const previewFileInfo = document.getElementById('previewFileInfo');
+        const downloadBtn = document.getElementById('downloadBtn');
+        const errorAlert = document.getElementById('errorAlert');
+
+        function formatFileInfo(file) {
+            const size = formatFileSize(file.content.length);
+            const date = new Date(file.created).toLocaleString();
+            return `${size} • Shared on ${date}`;
+        }
+
+        function formatFileSize(bytes) {
+            if (bytes === 0) return '0 Bytes';
+            const k = 4096;
+            const sizes = ['Bytes', 'KB', 'MB', 'GB'];
+            const i = Math.floor(Math.log(bytes) / Math.log(k));
+            return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+        }
+
+        async function loadSharedFile() {
+            try {
+                await fileManager.init();
+                const sharedItem = await fileManager.getSharedItem(shareId);
+                
+                if (!sharedItem) {
+                    errorAlert.style.display = 'block';
+                    previewContent.innerHTML = '';
+                    return;
+                }
+
+                previewFileName.textContent = sharedItem.name;
+                previewFileInfo.textContent = formatFileInfo(sharedItem);
+
+                // Handle file preview based on type
+                const ext = sharedItem.name.split('.').pop().toLowerCase();
+                
+                if (['jpg', 'jpeg', 'png', 'gif', 'webp'].includes(ext)) {
+                    const img = document.createElement('img');
+                    img.src = sharedItem.content;
+                    img.className = 'preview-image';
+                    previewContent.innerHTML = '';
+                    previewContent.appendChild(img);
+                } else if (['txt', 'md', '.html', '.css', '.js', '.json',
+                            '.xml', '.csv', 'pdf'].includes(ext)) {
+                    const pre = document.createElement('pre');
+                    pre.className = 'preview-text';
+                    pre.textContent = await (await fetch(sharedItem.content)).text();
+                    previewContent.innerHTML = '';
+                    previewContent.appendChild(pre);
+                } else {
+                    previewContent.innerHTML = `
+                        <div class="preview-unsupported">
+                            <i data-feather="file-text"></i>
+                            <p>Preview not available for ${sharedItem.name}</p>
+                            <button class="btn btn-primary" onclick="window.open('${sharedItem.content}', '_blank')">
+                                Open File
+                            </button>
+                        </div>
+                    `;
+                    feather.replace();
+                }
+
+                // Setup download button
+                downloadBtn.onclick = () => {
+                    const link = document.createElement('a');
+                    link.href = sharedItem.content;
+                    link.download = sharedItem.name;
+                    link.click();
+                };
+            } catch (error) {
+                console.log('Error loading shared file:', error);
+                errorAlert.textContent = 'Error loading shared file';
+                errorAlert.style.display = 'block';
+            }
+        }
+
+        loadSharedFile();
+    </script>
+</body>
+</html>
