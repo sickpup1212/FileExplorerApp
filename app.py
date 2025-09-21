@@ -211,6 +211,64 @@ def update_file(file_path):
         return jsonify({'error': 'An unexpected error occurred during the update.'}), 500
 
 
+@app.route('/api/files/paste', methods=['POST'])
+@login_required
+def paste_file():
+    """
+    Pastes a file or folder to a new destination.
+    This handles both 'copy' and 'cut' (move) operations.
+    """
+    from models import File
+    data = request.json
+    source_path = data['sourcePath']
+    destination_path = data['destinationPath']
+    operation = data['operation']
+
+    source_file = File.query.filter_by(path=source_path).first_or_404()
+
+    new_name = source_file.name
+    new_path = f"{destination_path}/{new_name}"
+
+    # Check if a file with the same name already exists at the destination
+    if File.query.filter_by(path=new_path).first():
+        # If it's a copy, we can add a suffix. For a move, this is an error.
+        if operation == 'copy':
+            new_name = f"{source_file.name.split('.')[0]}_copy.{source_file.name.split('.')[-1]}" if '.' in source_file.name else f"{source_file.name}_copy"
+            new_path = f"{destination_path}/{new_name}"
+        else:
+            return jsonify({'error': 'A file with the same name already exists at the destination.'}), 409
+
+    try:
+        if operation == 'cut':
+            # Move operation: just update the path
+            logger.info(f"Moving file from {source_path} to {new_path}")
+            source_file.path = new_path
+            source_file.parent_path = destination_path
+            source_file.name = new_name
+            db.session.commit()
+            return jsonify({'message': 'File moved successfully.'}), 200
+
+        elif operation == 'copy':
+            # Copy operation: create a new file
+            logger.info(f"Copying file from {source_path} to {new_path}")
+            new_file = File(
+                name=new_name,
+                path=new_path,
+                type=source_file.type,
+                parent_path=destination_path,
+                content=source_file.content,
+                size=source_file.size
+            )
+            db.session.add(new_file)
+            db.session.commit()
+            return jsonify({'message': 'File copied successfully.'}), 201
+
+    except Exception as e:
+        db.session.rollback()
+        logger.error(f"Failed to paste file from {source_path} to {destination_path}", exc_info=True)
+        return jsonify({'error': 'An unexpected error occurred during the paste operation.'}), 500
+
+
 @app.route('/share/<share_id>')
 def shared_file(share_id):
     return render_template('shared.html', share_id=share_id)
@@ -252,6 +310,22 @@ def create_share():
     return jsonify({'shareId': share_id})
 
 
+@app.route('/api/shares', methods=['GET'])
+@login_required
+def get_shared_files():
+    """
+    Retrieves a list of all shared files.
+    """
+    from models import SharedFile
+    shared_files = SharedFile.query.all()
+    return jsonify([{
+        'share_id': sf.share_id,
+        'file_name': sf.file.name,
+        'created_at': sf.created_at.isoformat(),
+        'expires_at': sf.expires_at.isoformat(),
+    } for sf in shared_files])
+
+
 @app.route('/static/<path:path>')
 def serve_static(path):
     return send_from_directory('static', path)
@@ -262,10 +336,15 @@ def serve_static(path):
 def password_manager():
     return render_template('password_manager.html')
 
+@app.route('/shared-files')
+@login_required
+def shared_files():
+    return render_template('shared_files.html')
+
 @app.route('/document-chat')
 @login_required
 def document_chat():
-    return render_template('chatai.html')
+    return render_template('document_chat.html')
 
 @app.route('/api/doc-chat/add-file', methods=['POST'])
 @login_required

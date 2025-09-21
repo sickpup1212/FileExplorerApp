@@ -5,6 +5,16 @@ class FileManager {
         this.MAX_FILE_SIZE = 50 * 1024 * 1024; // 50MB
     }
 
+    _arrayBufferToBase64(buffer) {
+        let binary = '';
+        const bytes = new Uint8Array(buffer);
+        const len = bytes.byteLength;
+        for (let i = 0; i < len; i++) {
+            binary += String.fromCharCode(bytes[i]);
+        }
+        return window.btoa(binary);
+    }
+
     async init() {
         // No initialization needed for PostgreSQL backend
         return Promise.resolve();
@@ -26,11 +36,17 @@ class FileManager {
             throw new Error('Item already exists');
         }
 
-        // If content is already a base64 string (from file upload), use it directly
-        // Otherwise, encode it to base64
-        const contentToSend = content?.startsWith('data:') ? 
-            content.split(',')[1] : 
-            content ? btoa(content) : null;
+        // If content is an ArrayBuffer, convert it to base64.
+        // Otherwise, if content is plain text, encode it to base64.
+        let contentToSend = null;
+        if (content) {
+            if (content instanceof ArrayBuffer) {
+                contentToSend = this._arrayBufferToBase64(content);
+            } else {
+                // This branch is for creating files with text content, like from the createFile method
+                contentToSend = btoa(unescape(encodeURIComponent(content)));
+            }
+        }
 
         const response = await fetch('/api/files', {
             method: 'POST',
@@ -81,28 +97,12 @@ class FileManager {
         return response.json();
     }
 
-    async moveItem(sourcePath, targetPath) {
-        const item = await this.getItem(sourcePath);
-        if (!item) {
-            throw new Error('Source item not found');
-        }
-
-        // Create new item at target location
-        const newItem = await this.createItem(
-            item.name,
-            item.type,
-            item.content
-        );
-
-        // Delete the original item
-        await this.deleteItem(sourcePath);
-
-        return newItem;
-    }
-
     async getItem(path) {
-        const items = await this.loadContent(this.currentPath);
-        return items.find(item => item.path === path);
+        const response = await fetch(`/api/files/${encodeURIComponent(path)}`);
+        if (!response.ok) {
+            return null;
+        }
+        return response.json();
     }
 
     async loadContent(path) {
@@ -125,34 +125,35 @@ class FileManager {
     }
 
     async paste() {
-        if (!this.clipboard) return;
+        if (!this.clipboard) {
+            throw new Error('Clipboard is empty.');
+        }
 
         const { item, operation } = this.clipboard;
-        const newName = item.name;
-        const newPath = `${this.currentPath}/${newName}`;
+        const destinationPath = this.currentPath;
 
-        if (operation === 'cut') {
-            await this.moveItem(item.path, newPath);
-        } else {
-            await this.copyItem(item.path, newPath);
+        const response = await fetch('/api/files/paste', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+                sourcePath: item.path,
+                destinationPath,
+                operation, // 'cut' or 'copy'
+            }),
+        });
+
+        if (!response.ok) {
+            const error = await response.json();
+            throw new Error(error.error || 'Failed to paste item');
         }
 
         if (operation === 'cut') {
             this.clipboard = null;
         }
-    }
 
-    async copyItem(oldPath, newPath) {
-        const item = await this.getItem(oldPath);
-        if (!item) {
-            throw new Error('Source item not found');
-        }
-
-        return this.createItem(
-            item.name,
-            item.type,
-            item.content
-        );
+        return response.json();
     }
 
     async generateShareLink(item) {

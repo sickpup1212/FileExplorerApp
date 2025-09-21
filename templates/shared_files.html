@@ -1,0 +1,131 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Shared Files - Modern File Explorer</title>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css">
+    <script src="https://cdn.jsdelivr.net/npm/feather-icons/dist/feather.min.js"></script>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/styles.css') }}">
+</head>
+<body>
+    <div class="explorer">
+        <div class="sidebar" id="sidebar">
+            <div class="sidebar-header">
+                <h5>Navigation</h5>
+                <button class="sidebar-toggle" id="sidebarClose">
+                    <i data-feather="x"></i>
+                </button>
+            </div>
+            <div class="nav-links">
+                <a href="/" class="nav-link">
+                    <i data-feather="folder"></i>
+                    File Explorer
+                </a>
+                <a href="/editor" class="nav-link">
+                    <i data-feather="edit-2"></i>
+                    Text Editor
+                </a>
+                <a href="/password-manager" class="nav-link">
+                    <i data-feather="key"></i>
+                    Password Manager
+                </a>
+                <a href="/document-chat" class="nav-link">
+                    <i data-feather="message-square"></i>
+                    Document Chat
+                </a>
+                <a href="/shared-files" class="nav-link active">
+                    <i data-feather="share-2"></i>
+                    Shared Files
+                </a>
+                <a href="/logout" class="nav-link">
+                    <i data-feather="log-out"></i>
+                    Logout
+                </a>
+            </div>
+        </div>
+
+        <div class="main-content">
+            <div class="toolbar-container">
+                <div class="toolbar top-toolbar">
+                    <button class="sidebar-toggle" id="sidebarToggle">
+                        <i data-feather="menu"></i>
+                    </button>
+                    <h1>Shared Files</h1>
+                </div>
+            </div>
+
+            <div class="content-area" id="contentArea">
+                <table class="table table-hover">
+                    <thead>
+                        <tr>
+                            <th>File Name</th>
+                            <th>Share Link</th>
+                            <th>Created At</th>
+                            <th>Expires At</th>
+                            <th>Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody id="sharedFilesTableBody">
+                        <!-- Shared files will be loaded here -->
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <script type="module">
+        document.addEventListener('DOMContentLoaded', () => {
+            feather.replace();
+
+            const sidebar = document.getElementById('sidebar');
+            const sidebarToggle = document.getElementById('sidebarToggle');
+            const sidebarClose = document.getElementById('sidebarClose');
+
+            sidebarToggle.addEventListener('click', () => {
+                sidebar.classList.add('show');
+            });
+
+            sidebarClose.addEventListener('click', () => {
+                sidebar.classList.remove('show');
+            });
+
+            async function loadSharedFiles() {
+                const response = await fetch('/api/shares');
+                const sharedFiles = await response.json();
+                const tableBody = document.getElementById('sharedFilesTableBody');
+                tableBody.innerHTML = '';
+
+                for (const file of sharedFiles) {
+                    const row = document.createElement('tr');
+                    const shareLink = `${window.location.origin}/share/${file.share_id}`;
+                    row.innerHTML = `
+                        <td>${file.file_name}</td>
+                        <td><a href="${shareLink}" target="_blank">${shareLink}</a></td>
+                        <td>${new Date(file.created_at).toLocaleString()}</td>
+                        <td>${new Date(file.expires_at).toLocaleString()}</td>
+                        <td>
+                            <button class="btn btn-sm btn-outline-secondary copy-link-btn" data-link="${shareLink}">
+                                <i data-feather="copy"></i>
+                            </button>
+                        </td>
+                    `;
+                    tableBody.appendChild(row);
+                }
+                feather.replace();
+
+                document.querySelectorAll('.copy-link-btn').forEach(button => {
+                    button.addEventListener('click', () => {
+                        const link = button.dataset.link;
+                        navigator.clipboard.writeText(link).then(() => {
+                            alert('Link copied to clipboard!');
+                        });
+                    });
+                });
+            }
+
+            loadSharedFiles();
+        });
+    </script>
+</body>
+</html>

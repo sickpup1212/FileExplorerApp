@@ -15,8 +15,8 @@ class App {
             this.fileManager = new FileManager();
             await this.fileManager.init();
 
-            // Initialize UI manager with file manager instance
-            this.uiManager = new UIManager(this.fileManager);
+            // Initialize UI manager with file manager instance and app instance
+            this.uiManager = new UIManager(this.fileManager, this);
             await this.uiManager.refreshContent();
 
             // Initialize drag and drop manager

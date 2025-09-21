@@ -50,14 +50,13 @@
         </div>
     </div>
 
-    <script>
-        document.addEventListener('DOMContentLoaded', () => {
-            feather.replace();
-        });
-    </script>
     <script type="module">
         import FileManager from "{{ url_for('static', filename='js/fileManager.js') }}";
         
+        document.addEventListener('DOMContentLoaded', () => {
+            feather.replace();
+        });
+
         const shareId = "{{ share_id }}";
         const fileManager = new FileManager();
         const previewContent = document.getElementById('previewContent');
@@ -74,7 +73,7 @@
 
         function formatFileSize(bytes) {
             if (bytes === 0) return '0 Bytes';
-            const k = 4096;
+            const k = 1024;
             const sizes = ['Bytes', 'KB', 'MB', 'GB'];
             const i = Math.floor(Math.log(bytes) / Math.log(k));
             return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
