@@ -4,19 +4,20 @@ from datetime import datetime, timedelta
 import uuid
 import base64
 import mimetypes
+import logging
 from auth import login_required, validate_pin
 from extensions import db
+from logger import setup_logging
+
+# Set up logging
+setup_logging()
+logger = logging.getLogger(__name__)
 
 # create the app
 app = Flask(__name__, static_url_path='/static', static_folder='static')
 
 # Setup configuration
-app.config["SECRET_KEY"] = os.environ.get("FLASK_SECRET_KEY", "dev_key_only")
-app.config["SQLALCHEMY_DATABASE_URI"] = os.environ.get("DATABASE_URL")
-app.config["SQLALCHEMY_ENGINE_OPTIONS"] = {
-    "pool_recycle": 300,
-    "pool_pre_ping": True,
-}
+app.config.from_object('config.Config')
 
 # Initialize the database with the app
 db.init_app(app)
@@ -54,6 +55,10 @@ def editor():
 @app.route('/api/files', methods=['GET'])
 @login_required
 def get_files():
+    """
+    Retrieves a list of files and folders from the specified parent path.
+    If no path is provided, it defaults to the root directory.
+    """
     from models import File
     parent_path = request.args.get('path', 'root')
     files = File.query.filter_by(parent_path=parent_path).all()
@@ -72,17 +77,24 @@ def get_files():
 @app.route('/api/files', methods=['POST'])
 @login_required
 def create_file():
+    """
+    Creates a new file or folder.
+    Expects a JSON payload with file metadata.
+    """
     from models import File
     data = request.json
 
-    # Check if file already exists
-    existing = File.query.filter_by(path=data['path']).first()
-    if existing:
+    # Check if a file with the same path already exists
+    if File.query.filter_by(path=data['path']).first():
+        logger.warning(f"Attempted to create a file that already exists: {data['path']}")
         return jsonify({'error': 'File already exists'}), 409
 
     try:
+        # Decode content if it exists
         content = base64.b64decode(data['content']) if data.get('content') else None
-        file = File(
+
+        # Create a new File object
+        new_file = File(
             name=data['name'],
             path=data['path'],
             type=data['type'],
@@ -90,9 +102,99 @@ def create_file():
             content=content,
             size=len(content) if content else 0
         )
-        db.session.add(file)
+
+        db.session.add(new_file)
         db.session.commit()
 
+        logger.info(f"File or folder created: {new_file.path}")
+
+        # Return the newly created file's data
+        return jsonify({
+            'path': new_file.path,
+            'name': new_file.name,
+            'type': new_file.type,
+            'parentPath': new_file.parent_path,
+            'content': f'data:{mimetypes.guess_type(new_file.name)[0] or "application/octet-stream"};base64,{base64.b64encode(new_file.content).decode("utf-8")}' if new_file.content else None,
+            'created': new_file.created_at.isoformat(),
+            'modified': new_file.modified_at.isoformat(),
+            'size': new_file.size
+        })
+    except Exception as e:
+        db.session.rollback()
+        logger.error(f"Failed to create file at path: {data.get('path')}", exc_info=True)
+        return jsonify({'error': 'An unexpected error occurred.'}), 500
+
+
+@app.route('/api/files/<path:file_path>', methods=['GET', 'DELETE'])
+@login_required
+def handle_file(file_path):
+    """
+    Handles retrieving (GET) or deleting (DELETE) a specific file or folder.
+    """
+    from models import File
+    file = File.query.filter_by(path=file_path).first_or_404()
+
+    if request.method == 'GET':
+        logger.info(f"Retrieved file: {file.path}")
+        return jsonify({
+            'path': file.path,
+            'name': file.name,
+            'type': file.type,
+            'parentPath': file.parent_path,
+            'content': f'data:{mimetypes.guess_type(file.name)[0] or "application/octet-stream"};base64,{base64.b64encode(file.content).decode("utf-8")}' if file.content else None,
+            'created': file.created_at.isoformat(),
+            'modified': file.modified_at.isoformat(),
+            'size': file.size
+        })
+
+    if request.method == 'DELETE':
+        try:
+            # If it's a folder, delete all its children first
+            if file.type == 'folder':
+                File.query.filter(File.path.startswith(f"{file_path}/")).delete(synchronize_session=False)
+                logger.info(f"Deleted all children of folder: {file_path}")
+
+            db.session.delete(file)
+            db.session.commit()
+            logger.info(f"Deleted file or folder: {file_path}")
+            return '', 204
+        except Exception as e:
+            db.session.rollback()
+            logger.error(f"Failed to delete: {file_path}", exc_info=True)
+            return jsonify({'error': 'An unexpected error occurred during deletion.'}), 500
+
+
+@app.route('/api/files/<path:file_path>', methods=['PUT'])
+@login_required
+def update_file(file_path):
+    """
+    Updates a file's name or content.
+    """
+    from models import File
+    file = File.query.filter_by(path=file_path).first_or_404()
+    data = request.json
+
+    try:
+        if 'name' in data:
+            new_path = f"{file.parent_path}/{data['name']}"
+            # Check if a file with the new name already exists
+            if File.query.filter_by(path=new_path).first():
+                logger.warning(f"Attempted to rename to an existing file name: {new_path}")
+                return jsonify({'error': 'A file with this name already exists'}), 409
+
+            logger.info(f"Renaming file from {file.path} to {new_path}")
+            file.name = data['name']
+            file.path = new_path
+
+        if 'content' in data:
+            logger.info(f"Updating content for file: {file.path}")
+            file.content = base64.b64decode(data['content'])
+            file.size = len(file.content)
+
+        file.modified_at = datetime.utcnow()
+        db.session.commit()
+
+        logger.info(f"File updated successfully: {file.path}")
         return jsonify({
             'path': file.path,
             'name': file.name,
@@ -105,69 +207,8 @@ def create_file():
         })
     except Exception as e:
         db.session.rollback()
-        return jsonify({'error': str(e)}), 500
-
-
-@app.route('/api/files/<path:file_path>', methods=['GET', 'DELETE'])
-@login_required
-def handle_file(file_path):
-    from models import File
-    if request.method == 'GET':
-        file = File.query.filter_by(path=file_path).first_or_404()
-        return jsonify({
-            'path': file.path,
-            'name': file.name,
-            'type': file.type,
-            'parentPath': file.parent_path,
-            'content': f'data:{mimetypes.guess_type(file.name)[0] or "application/octet-stream"};base64,{base64.b64encode(file.content).decode("utf-8")}' if file.content else None,
-            'created': file.created_at.isoformat(),
-            'modified': file.modified_at.isoformat(),
-            'size': file.size
-        })
-
-    # Handle DELETE
-    file = File.query.filter_by(path=file_path).first_or_404()
-
-    # If it's a folder, delete all children
-    if file.type == 'folder':
-        File.query.filter(File.path.startswith(f"{file_path}/")).delete()
-
-    db.session.delete(file)
-    db.session.commit()
-    return '', 204
-
-
-@app.route('/api/files/<path:file_path>', methods=['PUT'])
-@login_required
-def update_file(file_path):
-    from models import File
-    file = File.query.filter_by(path=file_path).first_or_404()
-    data = request.json
-
-    if 'name' in data:
-        new_path = f"{file.parent_path}/{data['name']}"
-        if File.query.filter_by(path=new_path).first():
-            return jsonify({'error': 'A file with this name already exists'}), 409
-        file.name = data['name']
-        file.path = new_path
-
-    if 'content' in data:
-        file.content = base64.b64decode(data['content'])
-        file.size = len(file.content)
-
-    file.modified_at = datetime.utcnow()
-    db.session.commit()
-
-    return jsonify({
-        'path': file.path,
-        'name': file.name,
-        'type': file.type,
-        'parentPath': file.parent_path,
-        'content': f'data:{mimetypes.guess_type(file.name)[0] or "application/octet-stream"};base64,{base64.b64encode(file.content).decode("utf-8")}' if file.content else None,
-        'created': file.created_at.isoformat(),
-        'modified': file.modified_at.isoformat(),
-        'size': file.size
-    })
+        logger.error(f"Failed to update file: {file_path}", exc_info=True)
+        return jsonify({'error': 'An unexpected error occurred during the update.'}), 500
 
 
 @app.route('/share/<share_id>')
@@ -267,6 +308,22 @@ def get_doc_chat_text():
     return jsonify({
         'content': file.content.decode('utf-8') if file.content else ''
     })
+
+@app.route('/health')
+def health_check():
+    """
+    Performs a health check of the application.
+    Currently, it only checks the database connection.
+    """
+    try:
+        # Try to execute a simple query against the database
+        db.session.execute('SELECT 1')
+        logger.info("Health check successful.")
+        return jsonify({'status': 'ok'}), 200
+    except Exception as e:
+        logger.error("Health check failed.", exc_info=True)
+        return jsonify({'status': 'error', 'reason': str(e)}), 503
+
 
 with app.app_context():
     import models  # noqa: F401

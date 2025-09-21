@@ -12,14 +12,18 @@ def login_required(f):
     return decorated_function
 
 def validate_pin(pin):
-    # This is a placeholder - in production, you'd want to validate against a user's stored PIN
-    # For now, we'll use a simple check against a default user
+    """
+    Validates the given PIN against the admin user's stored PIN.
+    If the admin user does not exist, it creates one with the given PIN.
+    """
     user = User.query.filter_by(username='admin').first()
     if not user:
-        # Create default admin user if not exists
-        user = User(username='admin', email='admin@example.com')
-        user.set_password(pin)
+        # Create a default admin user if one doesn't exist
+        user = User(username='admin')
+        user.set_pin(pin)
         db.session.add(user)
         db.session.commit()
         return True
-    return user.check_password(pin)
+
+    # Check the provided PIN against the stored hash
+    return user.check_pin(pin)
