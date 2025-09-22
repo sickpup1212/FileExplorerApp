@@ -220,6 +220,13 @@ class UIManager {
     }
 
     handleItemClick(e, item) {
+        if (this.app.isPicker) {
+            if (item.type === 'file') {
+                window.location.href = `/editor?file=${encodeURIComponent(item.path)}`;
+            }
+            return; // In picker mode, only single click on folder should navigate
+        }
+
         if (!e.ctrlKey && !e.metaKey) {
             this.selectedItems.clear();
             document.querySelectorAll('.file-item.selected').forEach(el => {
@@ -241,7 +248,9 @@ class UIManager {
     }
 
     async handleItemDoubleClick(item) {
-        if (item.type === 'folder') {
+        if (this.app.isPicker && item.type === 'file') {
+            window.location.href = `/editor?file=${encodeURIComponent(item.path)}`;
+        } else if (item.type === 'folder') {
             this.fileManager.currentPath = item.path;
             await this.refreshContent();
             this.updateBreadcrumb();

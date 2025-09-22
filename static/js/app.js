@@ -7,10 +7,14 @@ class App {
         this.fileManager = null;
         this.uiManager = null;
         this.dragDropManager = null;
+        this.isPicker = false;
     }
 
     async init() {
         try {
+            const urlParams = new URLSearchParams(window.location.search);
+            this.isPicker = urlParams.get('from') === 'editor';
+
             // Initialize file manager first
             this.fileManager = new FileManager();
             await this.fileManager.init();
@@ -64,6 +68,7 @@ class App {
     async navigateTo(path) {
         try {
             this.fileManager.currentPath = path;
+            sessionStorage.setItem('lastPath', path); // Store the last path
             await this.uiManager.refreshContent();
             this.uiManager.updateBreadcrumb();
             // Update browser history
