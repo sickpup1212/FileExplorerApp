@@ -116,6 +116,25 @@
 
     <input type="file" id="fileInput" multiple style="display: none">
 
+    <div class="login-overlay" id="loginOverlay" style="display: none;">
+        <form class="login-card" id="loginForm" autocomplete="off">
+            <div class="login-icon"><i data-feather="lock"></i></div>
+            <h4>File Explorer</h4>
+            <p class="text-muted">Enter your PIN to continue</p>
+            <input
+                type="password"
+                id="pinInput"
+                class="form-control"
+                inputmode="numeric"
+                pattern="[0-9]*"
+                placeholder="PIN"
+                aria-label="PIN"
+                required>
+            <div class="login-error" id="loginError" role="alert"></div>
+            <button type="submit" class="btn btn-primary w-100 mt-3">Unlock</button>
+        </form>
+    </div>
+
     <div class="context-menu" id="contextMenu">
         <div class="context-menu-item" data-action="open">
             <i data-feather="folder-open"></i> Open

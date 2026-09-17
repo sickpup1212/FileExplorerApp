@@ -1,0 +1,31 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+
+# Local configuration - contains your PIN and secret key. Never commit this.
+.env
+.secret_key
+
+# Uploaded files and generated thumbnails
+storage/
+.thumbs/
+
+# SQLite database and its write-ahead log sidecars (share links)
+*.db
+*.db-shm
+*.db-wal
+*.sqlite3
+
+# Test scratch directories
+.smoke-storage/
+.smoke-thumbs/
+.live-tmp/
+.debug-tmp/
+
+# Tooling caches
+.cache/
+.pythonlibs/
+.local/
+.upm/

@@ -1,0 +1,28 @@
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+
+# Never bake local secrets or uploaded files into an image.
+.env
+.secret_key
+storage/
+.thumbs/
+*.db
+*.db-shm
+*.db-wal
+
+# Test scratch and tooling caches
+.smoke-storage/
+.smoke-thumbs/
+.live-tmp/
+.debug-tmp/
+.cache/
+.pythonlibs/
+.local/
+.upm/
+
+.git/
+.gitignore
+attached_assets/
+generated-icon.png

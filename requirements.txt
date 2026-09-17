@@ -1,0 +1,16 @@
+# Local development and the start.ps1 / start.sh scripts install from here.
+# Pillow is required for image thumbnails; ffmpeg (a system binary, not a pip
+# package) provides video thumbnails.
+Flask>=3.1.0
+flask-sqlalchemy>=3.1.1
+SQLAlchemy>=2.0.0
+Pillow>=10.0.0
+python-dotenv>=1.0.0
+waitress>=3.0.0
+psycopg2-binary
+# Only needed when hosting on Linux behind gunicorn.
+gunicorn>=23.0.0
+
+# Only needed if DATABASE_URL points at Postgres. The app falls back to SQLite
+# with a warning if this is missing.
+# psycopg2-binary>=2.9.10

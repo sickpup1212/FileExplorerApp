@@ -1,306 +1,294 @@
-// FileManager module for handling file operations
+/**
+ * FileManager talks to the Flask REST API.
+ *
+ * It previously stored every byte in browser IndexedDB, which meant files were
+ * trapped in one browser on one device.  The storage backend is now the server,
+ * so the same library is visible from a phone and a desktop at the same time.
+ */
+
+export class AuthRequiredError extends Error {
+    constructor(message = 'Authentication required') {
+        super(message);
+        this.name = 'AuthRequiredError';
+        this.authRequired = true;
+    }
+}
+
+export class ApiError extends Error {
+    constructor(message, status) {
+        super(message);
+        this.name = 'ApiError';
+        this.status = status;
+    }
+}
+
+/** Fetch a URL with the session cookie and non-2xx responses turned into throws. */
+async function apiFetch(url, options = {}) {
+    const response = await fetch(url, { credentials: 'same-origin', ...options });
+
+    if (response.status === 401) {
+        const body = await response.json().catch(() => ({}));
+        if (body.auth_required) throw new AuthRequiredError(body.error);
+    }
+
+    if (!response.ok) {
+        const body = await response.json().catch(() => ({}));
+        throw new ApiError(body.error || `Request failed (${response.status})`, response.status);
+    }
+
+    if (response.status === 204) return null;
+    return response.json();
+}
+
+function encodePath(path) {
+    return encodeURIComponent(path || '');
+}
+
 class FileManager {
     constructor() {
-        this.db = null;
-        this.currentPath = 'root';
+        this.currentPath = '';
         this.clipboard = null;
-        this.MAX_FILE_SIZE = 50 * 1024 * 1024; // 50MB
+        // 0 means unlimited; the server enforces its own MAX_UPLOAD_MB setting.
+        this.MAX_FILE_SIZE = 0;
+        /** Object URLs created for previews, revoked when replaced. */
+        this._objectUrls = [];
     }
 
     async init() {
+        const status = await apiFetch('/api/auth/status');
+        if (!status.authenticated) throw new AuthRequiredError();
+        return status;
+    }
+
+    // ------------------------------------------------------------------
+    // Reading
+    // ------------------------------------------------------------------
+    async getItems(path = this.currentPath) {
+        const data = await apiFetch(`/api/files?path=${encodePath(path)}`);
+        return data.items;
+    }
+
+    async loadContent(path = this.currentPath) {
+        return this.getItems(path);
+    }
+
+    async getItem(path) {
         try {
-            await new Promise((resolve, reject) => {
-                const request = indexedDB.open('FileExplorerDB', 3); // Increment version for new store
-
-                request.onerror = () => reject(request.error);
-
-                request.onupgradeneeded = (event) => {
-                    const db = event.target.result;
-
-                    // Create files store if it doesn't exist
-                    if (!db.objectStoreNames.contains('files')) {
-                        const store = db.createObjectStore('files', { keyPath: 'path' });
-                        store.createIndex('parentPath', 'parentPath', { unique: false });
-                        store.add({
-                            path: 'root',
-                            name: 'Root',
-                            type: 'folder',
-                            parentPath: null,
-                            content: null,
-                            created: new Date(),
-                            modified: new Date(),
-                            size: 0
-                        });
-                    }
-
-                    // Create shares store if it doesn't exist
-                    if (!db.objectStoreNames.contains('shares')) {
-                        const sharesStore = db.createObjectStore('shares', { keyPath: 'shareId' });
-                        sharesStore.createIndex('expires', 'expires', { unique: false });
-                    }
-                };
-
-                request.onsuccess = (event) => {
-                    this.db = event.target.result;
-                    resolve();
-                };
-            });
+            return await apiFetch(`/api/stat?path=${encodePath(path)}`);
         } catch (error) {
-            console.error('Initialization error:', error);
+            if (error.status === 404) return undefined;
             throw error;
         }
     }
 
     async itemExists(path) {
-        return new Promise((resolve, reject) => {
-            const transaction = this.db.transaction(['files'], 'readonly');
-            const store = transaction.objectStore('files');
-            const request = store.get(path);
-
-            request.onsuccess = () => resolve(!!request.result);
-            request.onerror = () => reject(request.error);
-            transaction.onerror = () => reject(transaction.error);
-        });
+        return (await this.getItem(path)) !== undefined;
     }
 
+    // ------------------------------------------------------------------
+    // Creating
+    // ------------------------------------------------------------------
     async createItem(name, type, content = null) {
-        if (!name || name.includes('/')) {
-            throw new Error('Invalid name');
+        const endpoint = type === 'folder' ? '/api/folder' : '/api/file';
+        const item = await apiFetch(endpoint, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ path: this.currentPath, name }),
+        });
+
+        // Creating a file with initial content: stream it up as a real body.
+        if (content) {
+            const blob = content instanceof Blob ? content : new Blob([content]);
+            await this.uploadFile(new File([blob], name), { overwrite: true });
+            return this.getItem(joinPath(this.currentPath, name));
         }
 
-        const path = `${this.currentPath}/${name}`;
+        return item;
+    }
 
-        // Check if item exists
-        const exists = await this.itemExists(path);
-        if (exists) {
-            throw new Error('Item already exists');
-        }
-
+    /**
+     * Upload a File/Blob with progress reporting.
+     *
+     * Uses XMLHttpRequest rather than fetch because only XHR exposes upload
+     * progress events, which matter a lot for multi-gigabyte video.
+     */
+    uploadFile(file, { onProgress, overwrite = false, path = this.currentPath } = {}) {
         return new Promise((resolve, reject) => {
-            const transaction = this.db.transaction(['files'], 'readwrite');
-            const store = transaction.objectStore('files');
+            const form = new FormData();
+            form.append('file', file, file.name);
+            form.append('path', path);
+            form.append('name', file.name);
 
-            const item = {
-                path,
-                name,
-                type,
-                parentPath: this.currentPath,
-                content,
-                created: new Date(),
-                modified: new Date(),
-                size: content ? content.length : 0
+            const request = new XMLHttpRequest();
+            request.open('POST', `/api/upload?overwrite=${overwrite ? '1' : '0'}`);
+            request.withCredentials = true;
+
+            if (onProgress) {
+                request.upload.onprogress = (event) => {
+                    if (event.lengthComputable) {
+                        onProgress({
+                            loaded: event.loaded,
+                            total: event.total,
+                            fraction: event.loaded / event.total,
+                        });
+                    }
+                };
+            }
+
+            request.onload = () => {
+                let body = {};
+                try {
+                    body = JSON.parse(request.responseText);
+                } catch {
+                    body = {};
+                }
+
+                if (request.status === 401 && body.auth_required) {
+                    reject(new AuthRequiredError(body.error));
+                } else if (request.status >= 200 && request.status < 300) {
+                    resolve(body);
+                } else {
+                    reject(new ApiError(body.error || `Upload failed (${request.status})`, request.status));
+                }
             };
 
-            const request = store.add(item);
-            request.onsuccess = () => resolve(item);
-            request.onerror = () => reject(request.error);
-            transaction.onerror = () => reject(transaction.error);
+            request.onerror = () => reject(new ApiError('Network error during upload', 0));
+            request.onabort = () => reject(new ApiError('Upload cancelled', 0));
+            request.send(form);
         });
     }
 
+    // ------------------------------------------------------------------
+    // Mutating
+    // ------------------------------------------------------------------
     async deleteItem(path) {
-        const item = await this.getItem(path);
-        if (!item) return;
-
-        if (item.type === 'folder') {
-            const children = await this.loadContent(path);
-            const transaction = this.db.transaction(['files'], 'readwrite');
-            const store = transaction.objectStore('files');
-
-            return new Promise((resolve, reject) => {
-                transaction.onerror = () => reject(transaction.error);
-
-                // Delete all children and the folder itself in one transaction
-                const deleteRequests = [...children, item].map(item => {
-                    return store.delete(item.path);
-                });
-
-                transaction.oncomplete = () => resolve();
-            });
-        } else {
-            return new Promise((resolve, reject) => {
-                const transaction = this.db.transaction(['files'], 'readwrite');
-                const store = transaction.objectStore('files');
-                const request = store.delete(path);
-
-                request.onsuccess = () => resolve();
-                request.onerror = () => reject(request.error);
-                transaction.onerror = () => reject(transaction.error);
-            });
-        }
+        return apiFetch(`/api/files?path=${encodePath(path)}`, { method: 'DELETE' });
     }
 
     async renameItem(oldPath, newName) {
         const item = await this.getItem(oldPath);
-        const newPath = `${item.parentPath}/${newName}`;
-
-        if (await this.itemExists(newPath)) {
-            throw new Error('An item with this name already exists');
-        }
-
-        const transaction = this.db.transaction(['files'], 'readwrite');
-        const store = transaction.objectStore('files');
-
-        item.name = newName;
-        item.path = newPath;
-        item.modified = new Date();
-
-        await this.deleteItem(oldPath);
-        return new Promise((resolve, reject) => {
-            const request = store.add(item);
-            request.onsuccess = () => resolve(item);
-            request.onerror = () => reject(request.error);
-        });
+        if (!item) throw new ApiError('Item not found', 404);
+        const newPath = joinPath(item.parent_path, newName);
+        return this.moveItem(oldPath, newPath);
     }
 
     async moveItem(sourcePath, targetPath) {
-        // Prevent moving a folder into its own subfolder
-        if (targetPath.startsWith(sourcePath + '/')) {
-            throw new Error('Cannot move a folder into its own subfolder');
-        }
-
-        const sourceItem = await this.getItem(sourcePath);
-        if (!sourceItem) {
-            throw new Error('Source item not found');
-        }
-
-        const transaction = this.db.transaction(['files'], 'readwrite');
-        const store = transaction.objectStore('files');
-
-        return new Promise((resolve, reject) => {
-            const newItem = {
-                ...sourceItem,
-                path: targetPath,
-                parentPath: this.currentPath,
-                modified: new Date()
-            };
-
-            const deleteRequest = store.delete(sourcePath);
-            deleteRequest.onsuccess = () => {
-                const addRequest = store.add(newItem);
-                addRequest.onsuccess = () => resolve(newItem);
-                addRequest.onerror = () => reject(addRequest.error);
-            };
-            deleteRequest.onerror = () => reject(deleteRequest.error);
-            transaction.onerror = () => reject(transaction.error);
+        return apiFetch('/api/move', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ from: sourcePath, to: targetPath }),
         });
     }
 
-    async getItem(path) {
-        return new Promise((resolve, reject) => {
-            const transaction = this.db.transaction(['files'], 'readonly');
-            const store = transaction.objectStore('files');
-            const request = store.get(path);
-
-            request.onsuccess = () => resolve(request.result);
-            request.onerror = () => reject(request.error);
-            transaction.onerror = () => reject(transaction.error);
+    async copyItem(sourcePath, targetPath) {
+        return apiFetch('/api/copy', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ from: sourcePath, to: targetPath }),
         });
     }
 
-    async loadContent(path) {
-        return new Promise((resolve, reject) => {
-            const transaction = this.db.transaction(['files'], 'readonly');
-            const store = transaction.objectStore('files');
-            const index = store.index('parentPath');
-            const request = index.getAll(path);
-
-            request.onsuccess = () => resolve(request.result);
-            request.onerror = () => reject(request.error);
-            transaction.onerror = () => reject(transaction.error);
-        });
-    }
-
-    async getItems(path) {
-        return this.loadContent(path);
-    }
+    // ------------------------------------------------------------------
+    // Clipboard
+    // ------------------------------------------------------------------
     copyToClipboard(item, cut = false) {
-        this.clipboard = {
-            item,
-            operation: cut ? 'cut' : 'copy'
-        };
+        this.clipboard = { item, operation: cut ? 'cut' : 'copy' };
     }
 
     async paste() {
-        if (!this.clipboard) return;
+        if (!this.clipboard) return null;
 
         const { item, operation } = this.clipboard;
-        const newName = item.name;
-        const newPath = `${this.currentPath}/${newName}`;
 
         if (operation === 'cut') {
-            await this.moveItem(item.path, newPath);
-        } else {
-            await this.copyItem(item.path, newPath);
-        }
-
-        if (operation === 'cut') {
+            const destination = joinPath(this.currentPath, item.name);
+            // Pasting into the folder it already lives in is a no-op.
+            const result = destination === item.path
+                ? item
+                : await this.moveItem(item.path, destination);
             this.clipboard = null;
+            return result;
         }
-    }
 
-    async copyItem(oldPath, newPath) {
-        const item = await this.getItem(oldPath);
-        const newItem = {
-            ...item,
-            path: newPath,
-            parentPath: this.currentPath,
-            created: new Date(),
-            modified: new Date()
-        };
-
-        const transaction = this.db.transaction(['files'], 'readwrite');
-        const store = transaction.objectStore('files');
-
-        return new Promise((resolve, reject) => {
-            const request = store.add(newItem);
-            request.onsuccess = () => resolve(newItem);
-            request.onerror = () => reject(request.error);
+        // Let the server pick a non-colliding name, so pasting twice works.
+        return apiFetch('/api/duplicate', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ path: item.path, parent: this.currentPath }),
         });
     }
 
-    async generateShareLink(item) {
-        const shareId = Math.random().toString(36).substring(2) + Date.now().toString(36);
-
-        const sharedItem = {
-            shareId,
-            originalPath: item.path,
-            name: item.name,
-            type: item.type,
-            content: item.content,
-            created: new Date(),
-            expires: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000) // 7 days expiry
-        };
-
-        // Store shared item in IndexedDB
-        const transaction = this.db.transaction(['shares'], 'readwrite');
-        const store = transaction.objectStore('shares');
-
-        return new Promise((resolve, reject) => {
-            const request = store.add(sharedItem);
-            request.onsuccess = () => resolve(shareId);
-            request.onerror = () => reject(request.error);
-            transaction.onerror = () => reject(transaction.error);
-        });
+    // ------------------------------------------------------------------
+    // URLs for previews and downloads
+    // ------------------------------------------------------------------
+    rawUrl(path, { download = false } = {}) {
+        return `/api/raw?path=${encodePath(path)}${download ? '&download=1' : ''}`;
     }
 
-    async getSharedItem(shareId) {
-        const transaction = this.db.transaction(['shares'], 'readonly');
-        const store = transaction.objectStore('shares');
-
-        return new Promise((resolve, reject) => {
-            const request = store.get(shareId);
-            request.onsuccess = () => {
-                const item = request.result;
-                if (!item || new Date(item.expires) < new Date()) {
-                    resolve(null);
-                } else {
-                    resolve(item);
-                }
-            };
-            request.onerror = () => reject(request.error);
-        });
+    thumbnailUrl(path, size = 320) {
+        // The server varies its ETag by file mtime, so no cache-busting param
+        // is needed here.
+        return `/api/thumbnail?path=${encodePath(path)}&size=${size}`;
     }
+
+    /** Fetch a file's bytes as a blob URL (used for previews and downloads). */
+    async fetchObjectUrl(path) {
+        const response = await fetch(this.rawUrl(path), { credentials: 'same-origin' });
+        if (response.status === 401) throw new AuthRequiredError();
+        if (!response.ok) throw new ApiError(`Could not load file (${response.status})`, response.status);
+
+        const blob = await response.blob();
+        const url = URL.createObjectURL(blob);
+        this._objectUrls.push(url);
+        return url;
+    }
+
+    /** Fetch a text file's contents for the code/text preview. */
+    async fetchText(path) {
+        const response = await fetch(this.rawUrl(path), { credentials: 'same-origin' });
+        if (response.status === 401) throw new AuthRequiredError();
+        if (!response.ok) throw new ApiError(`Could not read file (${response.status})`, response.status);
+        return response.text();
+    }
+
+    releaseObjectUrls() {
+        this._objectUrls.forEach((url) => URL.revokeObjectURL(url));
+        this._objectUrls = [];
+    }
+
+    async downloadFile(item) {
+        const url = await this.fetchObjectUrl(item.path);
+        const link = document.createElement('a');
+        link.href = url;
+        link.download = item.name;
+        document.body.appendChild(link);
+        link.click();
+        link.remove();
+    }
+
+    // ------------------------------------------------------------------
+    // Sharing
+    // ------------------------------------------------------------------
+    async generateShareLink(item, days = 7) {
+        const share = await apiFetch('/api/share', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ path: item.path, days }),
+        });
+        return share.url;
+    }
+}
+
+/** Join a parent path and a name into an API path. */
+export function joinPath(parent, name) {
+    const clean = (parent || '').replace(/^\/+|\/+$/g, '');
+    return clean ? `${clean}/${name}` : name;
+}
+
+/** Basename of an API path — the fragment used for display. */
+export function baseName(path) {
+    const clean = (path || '').replace(/\/+$/, '');
+    return clean.split('/').pop() || '';
 }
 
 export default FileManager;

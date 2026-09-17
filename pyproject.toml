@@ -1,12 +1,27 @@
 [project]
-name = "repl-nix-workspace"
-version = "0.1.0"
-description = "Add your description here"
+name = "file-system-explorer"
+version = "2.0.0"
+description = "Persistent, self-hosted file explorer for transferring media between devices"
 requires-python = ">=3.11"
 dependencies = [
-    "email-validator>=2.2.0",
     "flask>=3.1.0",
     "flask-sqlalchemy>=3.1.1",
+    "pillow>=10.0.0",
+    "python-dotenv>=1.0.0",
+    "sqlalchemy>=2.0.0",
+    "waitress>=3.0.0",
+]
+
+[project.optional-dependencies]
+# Only needed if you deploy on Linux (e.g. Replit) rather than locally.
+deploy = [
     "gunicorn>=23.0.0",
     "psycopg2-binary>=2.9.10",
 ]
+
+[tool.setuptools]
+py-modules = ["app", "api", "storage", "models", "main"]
+
+[tool.pytest.ini_options]
+testpaths = ["."]
+python_files = ["smoke_test.py"]
