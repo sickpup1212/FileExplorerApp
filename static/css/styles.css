@@ -54,20 +54,108 @@ body {
 
 /* Toolbar styles with responsive adjustments */
 .toolbar {
+    /* Fixed height: must not grow or shrink, so the listing below can scroll.
+     * This only holds together if the contents fit on one row, so wrapping is
+     * disabled. When it was allowed to wrap, the extra row overflowed the
+     * fixed height and landed on top of the breadcrumb, which made the
+     * controls in the second row unclickable. Account controls and the space
+     * shortcuts live in the sidebar instead, where there is room. */
+    flex: 0 0 auto;
     height: var(--toolbar-height);
     padding: 0.5rem 1rem;
     border-bottom: 1px solid #dee2e6;
     display: flex;
     align-items: center;
     background: white;
-    flex-wrap: wrap;
+    flex-wrap: nowrap;
     gap: 0.5rem;
+    /* Deliberately NOT overflow: auto. A scrolling ancestor clips its
+       descendants, which hid the New dropdown behind the breadcrumb. The
+       responsive rules below keep the row narrow enough that no scrolling is
+       needed at any width. */
+    position: relative;
+    z-index: 20;
 }
 
 .toolbar .btn-group {
     display: flex;
-    flex-wrap: wrap;
+    flex: 0 0 auto;
     gap: 0.25rem;
+}
+
+/* Buttons keep their natural width so labels stay readable. Below the widest
+   breakpoint the labels drop and only the icons remain, which fits without the
+   toolbar clipping its own controls. */
+.toolbar button {
+    flex: 0 0 auto;
+    white-space: nowrap;
+}
+
+.toolbar .view-toggle {
+    display: flex;
+    flex: 0 0 auto;
+    gap: 0.25rem;
+}
+
+/* Dropdown menu items hold an icon plus a label, so they need flex layout. */
+.dropdown-item {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+.dropdown-item [data-feather] {
+    width: 16px;
+    height: 16px;
+}
+
+/* The toolbar is a fixed height and does not wrap, so its controls must fit
+   on one row at every width. Measured need, with the 250px sidebar: ~1100px
+   labelled, ~620px icon-only. Labels go first, then the view toggle, which is
+   the least important control. Every button keeps its title tooltip. */
+@media (max-width: 1400px) {
+    .toolbar button span {
+        display: none;
+    }
+
+    /* Icon-only buttons need even padding to look deliberate, and tighter
+       spacing buys back the width the labels used to take. */
+    .toolbar {
+        padding: 0.5rem 0.6rem;
+        gap: 0.35rem;
+    }
+
+    .toolbar .btn {
+        padding-left: 0.6rem;
+        padding-right: 0.6rem;
+    }
+
+    .toolbar .btn-group,
+    .toolbar .view-toggle {
+        gap: 0.15rem;
+    }
+
+    /* A slightly narrower sidebar also returns horizontal room to the toolbar. */
+    :root {
+        --sidebar-width: 220px;
+    }
+}
+
+/* Below this the sidebar still takes 220px, so the view toggle is dropped
+   entirely rather than clipping the actions on the right. */
+@media (max-width: 1250px) {
+    .toolbar .view-toggle {
+        display: none;
+    }
+}
+
+/* At the narrowest widths the toolbar still cannot hold everything. Download
+   is dropped because it is also available from the right-click menu on any
+   file, so nothing becomes unreachable. */
+@media (max-width: 1100px) {
+    .toolbar #downloadBtn {
+        display: none;
+    }
 }
 
 .toolbar button span {
@@ -80,6 +168,63 @@ body {
     grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
     gap: 1rem;
     padding: 1rem;
+}
+
+/* The scrolling viewport for a directory's contents.
+ *
+ * body has overflow:hidden and .explorer is a fixed-height grid, so without
+ * this the listing simply overflowed the viewport with no way to reach the
+ * items below the fold. flex:1 lets it fill the remaining height and
+ * min-height:0 is required for a flex child to be allowed to shrink enough to
+ * scroll at all. */
+.content-area {
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow-y: auto;
+    overflow-x: hidden;
+    /* Keeps momentum scrolling smooth on iOS, where the listing is the
+       primary scroll surface. */
+    -webkit-overflow-scrolling: touch;
+    overscroll-behavior: contain;
+}
+
+/* Scrollbars are styled rather than left to the platform default, which is an
+   overlay that is easy to miss on a grid of thumbnails. */
+.content-area::-webkit-scrollbar {
+    width: 12px;
+}
+
+.content-area::-webkit-scrollbar-track {
+    background: transparent;
+}
+
+.content-area::-webkit-scrollbar-thumb {
+    background: #c3c9d0;
+    border-radius: 6px;
+    border: 3px solid #f8f9fa;
+}
+
+.content-area::-webkit-scrollbar-thumb:hover {
+    background: #a5adb6;
+}
+
+@supports (scrollbar-width: thin) {
+    .content-area {
+        scrollbar-width: thin;
+        scrollbar-color: #c3c9d0 transparent;
+    }
+}
+
+.breadcrumb-container {
+    flex: 0 0 auto;
+    position: relative;
+    /* Below the toolbar so an open dropdown is never covered. */
+    z-index: 1;
+}
+
+#errorAlert {
+    flex: 0 0 auto;
+    margin: 0.5rem 1rem 0;
 }
 
 .files-container.list-view {
@@ -180,6 +325,37 @@ body {
     align-items: center;
     justify-content: center;
     overflow: hidden;
+}
+
+/* Drag handle on the preview panel's left edge. Sits slightly outside the
+   border so it is easy to grab without overlapping the content. */
+.preview-resizer {
+    position: absolute;
+    left: -3px;
+    top: 0;
+    bottom: 0;
+    width: 8px;
+    cursor: col-resize;
+    background: transparent;
+    z-index: 10;
+    touch-action: none;
+}
+
+.preview-resizer:hover,
+.preview-resizer.dragging {
+    background: rgba(13, 110, 253, 0.35);
+}
+
+/* While dragging, stop the pointer selecting text or the iframe/video
+   swallowing the mouse events. */
+body.resizing-preview {
+    cursor: col-resize;
+    user-select: none;
+}
+
+body.resizing-preview .preview-content iframe,
+body.resizing-preview .preview-content video {
+    pointer-events: none;
 }
 
 .preview-image {
@@ -317,46 +493,6 @@ body {
 
     :root {
         --preview-panel-width: 300px;
-    }
-}
-
-@media (max-width: 768px) {
-    .explorer {
-        grid-template-columns: 1fr;
-    }
-
-    .sidebar {
-        position: fixed;
-        top: 0;
-        left: 0;
-        bottom: 0;
-        z-index: 1001;
-        transform: translateX(-100%);
-    }
-
-    .sidebar.show {
-        transform: translateX(0);
-    }
-
-    .sidebar-toggle {
-        display: block;
-    }
-
-    .preview-panel {
-        width: 100%;
-    }
-
-    .files-container {
-        grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
-    }
-
-    .toolbar {
-        padding: 0.5rem;
-        justify-content: center;
-    }
-
-    .toolbar .btn-group {
-        flex: 0 0 auto;
     }
 }
 
@@ -565,4 +701,371 @@ body {
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+}
+
+/* ---------------------------------------------------------------- */
+/* PIN protected folders and read-only state                         */
+/* ---------------------------------------------------------------- */
+.file-item-lock {
+    position: absolute;
+    top: 0.5rem;
+    left: 0.5rem;
+    background: rgba(255, 255, 255, 0.92);
+    color: #b8860b;
+    border-radius: 50%;
+    width: 24px;
+    height: 24px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2);
+}
+
+.file-item-lock [data-feather] {
+    width: 14px;
+    height: 14px;
+}
+
+.file-item.is-locked .file-item-name {
+    color: #6c757d;
+}
+
+.file-item.disabled,
+.file-item[data-writable='false'] {
+    opacity: 0.6;
+}
+
+.sidebar-user {
+    padding: 0.5rem 1rem;
+    font-size: 0.8rem;
+    color: #495057;
+    border-bottom: 1px solid #dee2e6;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.sidebar-user.readonly {
+    color: #b8860b;
+}
+
+/* Space shortcuts (Shared / My files) and sign out live in the sidebar, which
+   scrolls, rather than in the fixed-height toolbar. */
+.sidebar-nav {
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+    padding: 0.5rem;
+    border-bottom: 1px solid #dee2e6;
+}
+
+.sidebar-nav:empty {
+    display: none;
+}
+
+.sidebar-nav button {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    width: 100%;
+    text-align: left;
+    justify-content: flex-start;
+}
+
+.sidebar-logout {
+    margin: 0.5rem;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    justify-content: flex-start;
+    /* Pinned to the bottom of the sidebar. */
+    margin-top: auto;
+}
+
+.sidebar-logout [data-feather] {
+    width: 16px;
+    height: 16px;
+}
+
+/* ---------------------------------------------------------------- */
+/* Mobile: labelled actions instead of a toolbar of bare icons        */
+/* ---------------------------------------------------------------- */
+
+/* The labelled action list is a mobile-only affordance. Two columns keeps the
+   list short enough that the tree below stays visible, while every action
+   keeps a readable text label. */
+.sidebar-actions {
+    display: none;
+    grid-template-columns: 1fr 1fr;
+    gap: 0.35rem;
+    padding: 0.6rem 0.5rem;
+    border-bottom: 1px solid #dee2e6;
+}
+
+.sidebar-actions h6 {
+    grid-column: 1 / -1;
+    margin: 0 0 0.25rem;
+    font-size: 0.75rem;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: #6c757d;
+}
+
+.sidebar-actions .btn,
+.sidebar-actions .dropdown {
+    width: 100%;
+}
+
+.sidebar-actions .btn {
+    display: flex;
+    align-items: center;
+    justify-content: flex-start;
+    gap: 0.4rem;
+    font-size: 0.8rem;
+    padding: 0.4rem 0.5rem;
+    min-height: 40px; /* comfortable tap target */
+}
+
+.sidebar-actions .dropdown-menu {
+    width: 100%;
+}
+
+/* The per-item action trigger: only useful where there is no right-click. */
+.file-item-menu {
+    display: none;
+    position: absolute;
+    top: 0.25rem;
+    right: 0.25rem;
+    width: 32px;
+    height: 32px;
+    align-items: center;
+    justify-content: center;
+    border: none;
+    border-radius: 6px;
+    background: rgba(255, 255, 255, 0.9);
+    color: #495057;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2);
+    z-index: 5;
+}
+
+.file-item-menu [data-feather] {
+    width: 16px;
+    height: 16px;
+}
+
+.menu-backdrop {
+    display: none;
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.35);
+    z-index: 1999;
+}
+
+/* The mobile hint replaces the toolbar's meaning on small screens. */
+.mobile-hint {
+    display: none;
+    font-size: 0.8rem;
+    color: #6c757d;
+}
+
+.mobile-hint.show {
+    display: block;
+}
+
+/* Disabled toolbar actions should still look intentional, not broken. */
+.toolbar button:disabled {
+    opacity: 0.45;
+    cursor: not-allowed;
+}
+
+#noticeAlert {
+    flex: 0 0 auto;
+    margin: 0.5rem 1rem 0;
+}
+
+/* ---------------------------------------------------------------- */
+/* Root landing panel                                                */
+/* ---------------------------------------------------------------- */
+.landing-panel {
+    grid-column: 1 / -1;
+    background: #fff;
+    border: 1px solid #e3e6ea;
+    border-radius: 10px;
+    padding: 1rem 1.25rem;
+    margin-bottom: 0.5rem;
+}
+
+.landing-panel h6 {
+    margin: 0 0 0.75rem;
+    color: #495057;
+}
+
+.landing-card {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    width: 100%;
+    text-align: left;
+    background: #f8f9fa;
+    border: 1px solid #e3e6ea;
+    border-radius: 8px;
+    padding: 0.75rem 1rem;
+    margin-bottom: 0.5rem;
+    cursor: pointer;
+    transition: background-color 0.15s, border-color 0.15s;
+}
+
+.landing-card:hover {
+    background: #eef4ff;
+    border-color: #b6d0ff;
+}
+
+.landing-card [data-feather] {
+    width: 22px;
+    height: 22px;
+    color: #0d6efd;
+    flex: 0 0 auto;
+}
+
+.landing-card strong {
+    display: block;
+    font-size: 0.95rem;
+    font-weight: 600;
+}
+
+.landing-card span {
+    display: block;
+    font-size: 0.8rem;
+    color: #6c757d;
+}
+
+.landing-note {
+    margin: 0.5rem 0 0;
+    font-size: 0.8rem;
+    color: #6c757d;
+}
+
+/* Mobile overrides live last so they win over the base rules above. */
+@media (max-width: 768px) {
+    .explorer {
+        grid-template-columns: 1fr;
+    }
+
+    .sidebar {
+        position: fixed;
+        top: 0;
+        left: 0;
+        bottom: 0;
+        z-index: 1001;
+        transform: translateX(-100%);
+    }
+
+    .sidebar.show {
+        transform: translateX(0);
+    }
+
+    .sidebar-toggle {
+        display: block;
+    }
+
+    .preview-panel {
+        width: 100%;
+    }
+
+    .files-container {
+        grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+    }
+
+    .toolbar {
+        padding: 0.5rem;
+        justify-content: center;
+    }
+
+    .toolbar .btn-group {
+        flex: 0 0 auto;
+    }
+}
+
+@media (max-width: 768px) {
+    /* Below this width the toolbar is replaced by labelled buttons in the
+       sidebar. Two reasons: a row of bare icons is ambiguous on a phone, and
+       there is plenty of unused room in the sidebar, which is a drawer here
+       anyway. The actions are reached through the menu button.
+
+       The .explorer prefix raises specificity above the base `display: none`
+       rules, which appear later in this file and would otherwise win on source
+       order. */
+    .explorer .toolbar {
+        display: none;
+    }
+
+    .explorer .sidebar-actions {
+        display: grid;
+    }
+
+    /* The action trigger only makes sense without a right-click. */
+    .explorer .file-item-menu {
+        display: flex;
+    }
+
+    /* The main content carries its own menu button, since the toolbar that
+       used to hold it is hidden. */
+    .explorer .mobile-bar {
+        display: flex;
+    }
+
+    /* Nothing to hint at once the toolbar is gone. */
+    .explorer .mobile-hint {
+        display: none !important;
+    }
+}
+
+/* A floating menu button for phones, where the toolbar is hidden. */
+.mobile-bar {
+    display: none;
+    flex: 0 0 auto;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.4rem 0.6rem;
+    border-bottom: 1px solid #dee2e6;
+    background: #fff;
+}
+
+.mobile-bar .btn {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+}
+
+/* The context menu becomes a bottom sheet on narrow screens: full width and
+   within thumb reach, rather than a popup at a pointer position that does not
+   exist on touch. */
+.context-menu.as-sheet {
+    position: fixed;
+    left: 0 !important;
+    right: 0;
+    top: auto !important;
+    bottom: 0;
+    width: 100%;
+    max-height: 70vh;
+    overflow-y: auto;
+    border-radius: 12px 12px 0 0;
+    padding: 0.5rem 0 0.75rem;
+    box-shadow: 0 -4px 20px rgba(0, 0, 0, 0.25);
+    z-index: 2000;
+}
+
+.context-menu.as-sheet .context-menu-item {
+    padding: 0.85rem 1.1rem;
+    font-size: 1rem;
+    min-height: 44px; /* comfortable tap target */
+}
+
+@keyframes sheet-up {
+    from { transform: translateY(100%); }
+    to { transform: translateY(0); }
+}
+
+.context-menu.as-sheet {
+    animation: sheet-up 0.16s ease-out;
 }

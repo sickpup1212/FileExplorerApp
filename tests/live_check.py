@@ -4,7 +4,12 @@ Unlike smoke_test.py (which uses Flask's in-process test client), this speaks
 real HTTP to a real socket, so it also exercises waitress' streaming and
 Range handling.
 
-    .venv\\Scripts\\python.exe live_check.py [base_url] [pin]
+    .venv\\Scripts\\python.exe tests\\live_check.py [base_url] [username] [password]
+
+Signs in with an account. The shared PIN is not usable once an account exists,
+by design, so this needs real credentials. Create a throwaway account first:
+
+    .venv\\Scripts\\python.exe scripts\\manage_users.py add livetest
 """
 
 from __future__ import annotations
@@ -20,7 +25,8 @@ import urllib.request
 from http.cookiejar import CookieJar
 
 BASE = sys.argv[1] if len(sys.argv) > 1 else "http://127.0.0.1:8080"
-PIN = sys.argv[2] if len(sys.argv) > 2 else "123456"
+USERNAME = sys.argv[2] if len(sys.argv) > 2 else "livetest"
+PASSWORD = sys.argv[3] if len(sys.argv) > 3 else "password123"
 
 opener = urllib.request.build_opener(
     urllib.request.HTTPCookieProcessor(CookieJar())
@@ -88,14 +94,14 @@ def main() -> int:
     print(f"Target: {BASE}\n")
 
     print("== login ==")
-    status, body, _ = post_json("/api/auth/login", {"pin": PIN})
-    check("login succeeds", status == 200, f"{status} {body[:120]!r}")
+    status, body, _ = post_json("/api/auth/login", {"username": USERNAME, "password": PASSWORD})
+    check("account login succeeds", status == 200, f"{status} {body[:120]!r}")
 
     status, body, _ = request("GET", "/api/files?path=")
     check("can list root", status == 200, str(status))
 
     print("\n== folder + large upload (8 MB, multi-chunk) ==")
-    post_json("/api/folder", {"path": "", "name": "livecheck"})
+    post_json("/api/folder", {"path": "shared", "name": "livecheck"})
 
     # Deterministic pseudo-random bytes: compressible patterns would hide
     # corruption, so use a repeated hash block instead of zeros.
@@ -104,7 +110,7 @@ def main() -> int:
     block = hashlib.sha256(b"seed").digest()
     payload = (block * ((8 * 1024 * 1024) // len(block) + 1))[: 8 * 1024 * 1024]
 
-    body_bytes, content_type = multipart({"path": "livecheck", "name": "big.bin"}, "big.bin", payload)
+    body_bytes, content_type = multipart({"path": "shared/livecheck", "name": "big.bin"}, "big.bin", payload)
     status, response_body, _ = request(
         "POST", "/api/upload", body=body_bytes, headers={"Content-Type": content_type}
     )
@@ -114,14 +120,14 @@ def main() -> int:
         check("size reported correctly", info["size"] == len(payload), str(info.get("size")))
 
     print("\n== byte-exact download ==")
-    status, downloaded, headers = request("GET", "/api/raw?path=livecheck/big.bin")
+    status, downloaded, headers = request("GET", "/api/raw?path=shared/livecheck/big.bin")
     check("download status 200", status == 200, str(status))
     check("downloaded bytes identical", downloaded == payload, f"{len(downloaded)} vs {len(payload)}")
     check("Accept-Ranges present", headers.get("Accept-Ranges") == "bytes", str(headers.get("Accept-Ranges")))
 
     print("\n== Range streaming (what video scrubbing uses) ==")
     status, chunk, headers = request(
-        "GET", "/api/raw?path=livecheck/big.bin", headers={"Range": "bytes=1048576-1048775"}
+        "GET", "/api/raw?path=shared/livecheck/big.bin", headers={"Range": "bytes=1048576-1048775"}
     )
     check("range returns 206", status == 206, str(status))
     check("range returns exactly 200 bytes", len(chunk) == 200, str(len(chunk)))
@@ -150,7 +156,7 @@ def main() -> int:
             video_bytes = handle.read()
 
         body_bytes, content_type = multipart(
-            {"path": "livecheck", "name": "clip.mp4"}, "clip.mp4", video_bytes
+            {"path": "shared/livecheck", "name": "clip.mp4"}, "clip.mp4", video_bytes
         )
         status, response_body, _ = request(
             "POST", "/api/upload", body=body_bytes, headers={"Content-Type": content_type}
@@ -158,19 +164,19 @@ def main() -> int:
         check("video upload accepted", status == 201, f"{status} {response_body[:160]!r}")
 
         status, chunk, headers = request(
-            "GET", "/api/raw?path=livecheck/clip.mp4", headers={"Range": "bytes=0-2047"}
+            "GET", "/api/raw?path=shared/livecheck/clip.mp4", headers={"Range": "bytes=0-2047"}
         )
         check("video range request works", status == 206 and len(chunk) == 2048, f"{status} {len(chunk)}")
         check("video mime is video/mp4", headers.get("Content-Type", "").startswith("video/mp4"), str(headers.get("Content-Type")))
 
-        status, thumb, _ = request("GET", "/api/thumbnail?path=livecheck/clip.mp4&size=240")
+        status, thumb, _ = request("GET", "/api/thumbnail?path=shared/livecheck/clip.mp4&size=240")
         check("ffmpeg thumbnail generated", status == 200 and thumb[:2] == b"\xff\xd8", f"{status} {len(thumb)}")
         video_ok = True
     else:
         print("  SKIP  ffmpeg not found")
 
     print("\n== listing reflects server state ==")
-    status, body, _ = request("GET", "/api/files?path=livecheck")
+    status, body, _ = request("GET", "/api/files?path=shared/livecheck")
     items = {i["name"]: i for i in json.loads(body)["items"]}
     check("big.bin listed", "big.bin" in items)
     if video_ok:
@@ -179,9 +185,9 @@ def main() -> int:
         check(f"{name} has nonzero size", item["size"] > 0, str(item["size"]))
 
     print("\n== cleanup ==")
-    status, _, _ = request("DELETE", "/api/files?path=livecheck")
+    status, _, _ = request("DELETE", "/api/files?path=shared/livecheck")
     check("delete folder recursively", status == 200, str(status))
-    status, body, _ = request("GET", "/api/files?path=livecheck")
+    status, body, _ = request("GET", "/api/files?path=shared/livecheck")
     check("folder is gone", status == 404, str(status))
 
     shutil.rmtree(workdir, ignore_errors=True)

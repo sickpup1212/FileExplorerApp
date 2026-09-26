@@ -8,7 +8,6 @@ class App {
         this.fileManager = null;
         this.uiManager = null;
         this.dragDropManager = null;
-        this._loginPromise = null;
     }
 
     async init() {
@@ -18,8 +17,9 @@ class App {
             await this.start();
         } catch (error) {
             if (error instanceof AuthRequiredError) {
-                // Not logged in yet: gate the UI behind the PIN prompt.
-                await this.requireLogin();
+                // The server is the authority on this: if the session is not
+                // valid, go to the login screen rather than guessing.
+                window.location.href = '/login';
                 return;
             }
             console.error('Initialization error:', error);
@@ -27,97 +27,80 @@ class App {
         }
     }
 
-    /** Build the explorer UI. Safe to call again after a later login. */
     async start() {
         if (this.uiManager) return;
+
+        document.getElementById('explorer').hidden = false;
 
         this.uiManager = new UIManager(this.fileManager);
         this.dragDropManager = new DragDropManager(this.fileManager, this.uiManager);
 
         window.navigateTo = (path) => this.navigateTo(path);
         document.addEventListener('keydown', (e) => this.handleKeyboardShortcuts(e));
-        document.addEventListener('auth:required', () => this.requireLogin());
+        document.addEventListener('auth:required', () => {
+            window.location.href = '/login';
+        });
+
+        this.bindLogout();
+
         window.addEventListener('popstate', (e) => {
             if (e.state?.path !== undefined) this.navigateTo(e.state.path);
         });
 
-        await this.uiManager.refreshContent();
+        await this.loadInitialContent();
     }
 
-    /** Show the login screen and resolve once the user is authenticated. */
-    requireLogin() {
-        if (this._loginPromise) return this._loginPromise;
+    bindLogout() {
+        const button = document.getElementById('logoutBtn');
+        if (!button) return;
+        button.onclick = async () => {
+            try {
+                await this.fileManager.logout();
+            } catch (error) {
+                console.warn('Logout request failed; clearing the page anyway', error);
+            }
+            window.location.href = '/login';
+        };
+    }
 
-        this._loginPromise = new Promise((resolve) => {
-            const overlay = document.getElementById('loginOverlay');
-            const form = document.getElementById('loginForm');
-            const input = document.getElementById('pinInput');
-            const errorEl = document.getElementById('loginError');
-
-            if (!overlay || !form) {
-                this.showError('Login UI missing; reload the page.');
+    /**
+     * Work out which folder to open first.
+     *
+     * A guest who redeemed a PIN lands on /explorer/<path>, a normal user may
+     * have a #path deep link, and everyone else starts at the root.
+     */
+    async loadInitialContent() {
+        try {
+            // A guest who redeemed a PIN is redirected to
+            // /explorer/<path with %2F separators>, so the slashes survive the
+            // single path segment. Decoding once yields the storage-relative
+            // path; without this the encoded form is sent back to the API and
+            // the session resolves as anonymous.
+            const segments = window.location.pathname.split('/').filter(Boolean);
+            if (segments[0] === 'explorer' && segments.length > 1) {
+                const raw = segments.slice(1).join('/');
+                let target = raw;
+                try {
+                    target = decodeURIComponent(raw);
+                } catch (error) {
+                    console.warn('Could not decode explorer path, using raw value', error);
+                }
+                await this.uiManager.navigateTo(target, { updateUrl: false });
                 return;
             }
 
-            overlay.style.display = 'flex';
-            if (input) {
-                input.value = '';
-                input.focus();
-            }
-            if (errorEl) errorEl.textContent = '';
-
-            const submit = async (event) => {
-                event.preventDefault();
-                const pin = input ? input.value.trim() : '';
-                if (!pin) return;
-
-                if (errorEl) errorEl.textContent = '';
-
-                try {
-                    const response = await fetch('/api/auth/login', {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        credentials: 'same-origin',
-                        body: JSON.stringify({ pin }),
-                    });
-
-                    if (!response.ok) {
-                        const body = await response.json().catch(() => ({}));
-                        if (errorEl) errorEl.textContent = body.error || 'Login failed';
-                        if (input) {
-                            input.value = '';
-                            input.focus();
-                        }
-                        return;
-                    }
-
-                    overlay.style.display = 'none';
-                    form.removeEventListener('submit', submit);
-                    this._loginPromise = null;
-
-                    await this.start();
-                    await this.loadInitialContent();
-                    resolve();
-                } catch (error) {
-                    if (errorEl) errorEl.textContent = 'Could not reach the server';
-                }
-            };
-
-            form.addEventListener('submit', submit);
-        });
-
-        return this._loginPromise;
-    }
-
-    async loadInitialContent() {
-        try {
-            // Honour a #path deep link if the URL has one.
-            const hash = decodeURIComponent(window.location.hash.slice(1));
+            let hash = window.location.hash.slice(1);
             if (hash) {
+                try {
+                    hash = decodeURIComponent(hash);
+                } catch (error) {
+                    console.warn('Could not decode hash path, using raw value', error);
+                }
                 await this.uiManager.navigateTo(hash);
-            } else {
-                await this.uiManager.refreshContent();
+                return;
             }
+
+            await this.uiManager.refreshContent();
         } catch (error) {
             console.error('Error loading initial content:', error);
             this.showError('Failed to load content');
@@ -154,6 +137,7 @@ class App {
         if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
 
         const ctrlKey = e.ctrlKey || e.metaKey;
+        const writable = this.fileManager.canWrite();
 
         switch (true) {
             case ctrlKey && e.key === 'a':
@@ -167,21 +151,25 @@ class App {
                 break;
 
             case ctrlKey && e.key === 'x':
+                if (!writable) return;
                 e.preventDefault();
                 this.uiManager.cutSelected();
                 break;
 
             case ctrlKey && e.key === 'v':
+                if (!writable) return;
                 e.preventDefault();
                 this.uiManager.paste();
                 break;
 
             case e.key === 'Delete':
+                if (!writable) return;
                 e.preventDefault();
                 this.uiManager.deleteSelected();
                 break;
 
             case e.key === 'F2':
+                if (!writable) return;
                 e.preventDefault();
                 if (this.uiManager.selectedItems.size === 1) {
                     const item = Array.from(this.uiManager.selectedItems)[0];

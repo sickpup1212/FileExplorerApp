@@ -1,3 +1,12 @@
+# ARCHIVED - not used by the application.
+#
+# An early attempt at authentication, superseded by the account system in
+# api.py + permissions.py. No module imports this file.
+#
+# It is broken against the current model: User() has no 'email' column, and
+# the schema uses password_hash rather than a raw PIN. Kept only for reference.
+#
+# ---------------------------------------------------------------------------
 from functools import wraps
 from flask import session, redirect, url_for
 from models import User

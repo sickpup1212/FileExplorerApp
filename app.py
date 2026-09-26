@@ -156,6 +156,7 @@ def _configure_sqlite(app: Flask) -> None:
 
 def create_app() -> Flask:
     from api import api, register_share_routes
+    from pages import pages
     from storage import Storage
 
     app = Flask(__name__, static_folder="static", template_folder="templates")
@@ -181,6 +182,18 @@ def create_app() -> Flask:
         THUMBNAIL_CACHE_DIR=thumb_cache,
         THUMBNAIL_TIMEOUT=int(os.environ.get("THUMBNAIL_TIMEOUT", "20")),
         PIN_HASH=pin_hash,
+        # Accounts can only be created by someone holding this code. Unset
+        # means registration is closed entirely.
+        INVITE_CODE=(os.environ.get("FILE_EXPLORER_INVITE_CODE") or "").strip() or None,
+        # Lets a locked-out user set a new password from the login page.
+        # Falls back to the invite code so an existing deployment has a way
+        # back in without adding config; unset on both means the only route is
+        # `manage_users.py passwd` on the server itself.
+        RECOVERY_CODE=(
+            (os.environ.get("FILE_EXPLORER_RECOVERY_CODE") or "").strip()
+            or (os.environ.get("FILE_EXPLORER_INVITE_CODE") or "").strip()
+            or None
+        ),
         API_TOKEN=os.environ.get("FILE_EXPLORER_TOKEN"),
         SQLALCHEMY_DATABASE_URI=_database_uri(app),
         SQLALCHEMY_ENGINE_OPTIONS={"pool_recycle": 300, "pool_pre_ping": True},
@@ -200,6 +213,8 @@ def create_app() -> Flask:
     app.register_blueprint(api)
     # Share links are pasted into chat apps as "/s/<token>", outside /api.
     register_share_routes(app)
+    # Login, PIN unlock, and the explorer shell live outside /api too.
+    app.register_blueprint(pages)
 
     if generated_pin:
         app.logger.warning(
@@ -210,11 +225,25 @@ def create_app() -> Flask:
 
     @app.route("/")
     def index():
+        # Send visitors who have not signed in to the login screen rather than
+        # rendering the explorer, which would immediately hit 401s.
+        from api import current_principal
+        from flask import redirect
+
+        if not current_principal().authenticated:
+            return redirect("/login")
+
         return render_template("index.html")
 
     @app.route("/static/<path:path>")
     def serve_static(path):
         return send_from_directory("static", path)
+
+    @app.route("/favicon.ico")
+    def favicon():
+        # Browsers request /favicon.ico even when a page declares its own icon,
+        # so serving the SVG here keeps the console free of spurious 404s.
+        return send_from_directory("static", "favicon.svg", mimetype="image/svg+xml")
 
     @app.errorhandler(404)
     def not_found(_error):

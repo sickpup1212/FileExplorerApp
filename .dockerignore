@@ -12,7 +12,13 @@ storage/
 *.db-shm
 *.db-wal
 
-# Test scratch and tooling caches
+# Test scratch and tooling caches. The suites themselves are kept: they are
+# small, and handy for checking a running container.
+tests/.*-storage/
+tests/.*-thumbs/
+tests/.*-test.db*
+tests/.live-tmp/
+tests/.*.png
 .smoke-storage/
 .smoke-thumbs/
 .live-tmp/
@@ -22,7 +28,9 @@ storage/
 .local/
 .upm/
 
+# Superseded files kept for reference only - no need to ship them.
+old/
+
 .git/
 .gitignore
-attached_assets/
 generated-icon.png

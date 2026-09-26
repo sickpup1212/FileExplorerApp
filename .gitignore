@@ -12,15 +12,31 @@ venv/
 storage/
 .thumbs/
 
-# SQLite database and its write-ahead log sidecars (share links)
+# SQLite database and its write-ahead log sidecars
+# (accounts, folder PINs and share links; files themselves live in storage/)
 *.db
 *.db-shm
 *.db-wal
 *.sqlite3
 
-# Test scratch directories
-.smoke-storage/
-.smoke-thumbs/
+# Test scratch state. The suites keep everything under tests/ so a run can
+# never touch the real library or the real database. Each pattern is spelled
+# out rather than using a broad tests/.* so a legitimate dotfile is not hidden.
+tests/.*-storage/
+tests/.*-thumbs/
+tests/.*-test.db
+tests/.*-test.db-shm
+tests/.*-test.db-wal
+tests/.live-tmp/
+tests/.feather-icons.txt
+tests/.*.png
+
+# Fallbacks, in case a suite is ever run from the project root instead.
+.*-storage/
+.*-thumbs/
+.*-test.db
+.*-test.db-shm
+.*-test.db-wal
 .live-tmp/
 .debug-tmp/
 

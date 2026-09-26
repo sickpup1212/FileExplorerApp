@@ -17,9 +17,10 @@ data was cleared.
 | Size limit | 50 MB | No limit by default |
 | File size shown | ~33% too large (base64 length) | Exact bytes from `stat` |
 | Video playback | Whole file into memory as base64 | HTTP Range streaming |
-| Access control | None | PIN + session cookie |
+| Access control | One shared PIN | Accounts, private spaces, per-folder PINs |
 | Thumbnails | None | Pillow (images), ffmpeg (video) |
 | Share links | Local-only, never worked | Real expiring public links |
+| Long folder listings | No scrollbar, items unreachable | Scrollable content area |
 
 ## Quick start (Windows)
 
@@ -50,15 +51,28 @@ copy .env.example .env
 ## Layout
 
 ```
-app.py          Flask app factory, config, SQLite pragmas
-extensions.py   shared SQLAlchemy instance (breaks the app<->api cycle)
-api.py          REST API: files, auth, streaming, thumbnails, shares
-storage.py      disk storage + path safety
-models.py       Share-link table
-main.py         waitress entry point
-static/js/      frontend (FileManager, UIManager, DragDrop, app)
-templates/      index.html shell
+app.py           Flask app factory, config, SQLite pragmas
+extensions.py    shared SQLAlchemy instance (breaks the app<->api cycle)
+api.py           REST API: files, auth, streaming, thumbnails, shares
+pages.py         public HTML pages: /login, /unlock/<token>, /explorer
+storage.py       disk storage + path safety
+permissions.py   access control (regions, modes, guest confinement)
+models.py        accounts, directory PINs, share links
+main.py          waitress entry point
+start.ps1/.sh    one-command setup and launch
+
+static/js/       frontend (app, fileManager, uiManager, dragDrop)
+static/css/      styles
+templates/       index.html, login.html, unlock.html
+
+tests/           smoke_test.py, auth_test.py, live_check.py, ui_check.py
+scripts/         manage_users.py, migrate_db.py
+old/             superseded files, kept for reference only
 ```
+
+Runtime modules stay flat next to `app.py` on purpose: they are imported as
+top-level modules (`import storage`), which keeps `python main.py` working
+without an install step and avoids a package/`app.py` name collision.
 
 `extensions.py` exists for a specific reason: `api.py` needs the `db` object,
 and if it imported that from `app.py`, then importing `api` before `app` would
@@ -66,19 +80,201 @@ fail with `ImportError: cannot import name 'api' from partially initialized
 module 'api'`. Keeping the shared extension in its own module removes the
 cycle, so `python main.py`, `import app`, and `import api` all work.
 
+### Running the tests and scripts
+
+Run them **from the project root**, as shown below. The test files insert the
+project root on `sys.path` themselves, so they work from any directory, but the
+paths in the examples assume the root.
+
+```powershell
+.venv\Scripts\python.exe tests\smoke_test.py
+.venv\Scripts\python.exe scripts\manage_users.py list
+```
+
+### `old/`
+
+Nothing here is used by the running app:
+
+| File | Why it is archived |
+|---|---|
+| `auth.py` | An abandoned early auth attempt. Its `User(email=...)` call does not match the current model and no module imports it. |
+| `uv.lock` | Produced by the original Replit environment; it still lists the old dependency set (`psycopg2`, `gunicorn`, no Pillow). `requirements.txt` is the source of truth. |
+| `attached_assets/` | Design mockups and screenshots from earlier iterations. |
+| `css/`, `js/` | Empty directories left over from before assets moved under `static/`. |
+
+`scripts/migrate_db.py` is **not** archived: it still has a real job. The
+legacy `files` table from the very first version is still present in the
+database and that script drops it.
+
+## Accounts and sharing
+
+The app supports a handful of accounts, each with a private space, plus a
+shared area everyone can use.
+
+```
+<STORAGE_ROOT>/shared/            visible to every account, read/write
+<STORAGE_ROOT>/users/<name>/      private to that account
+<STORAGE_ROOT>/...                read-only legacy area
+```
+
+**The root is a landing area, not a working directory.** When you sign in you
+land on a panel offering **Shared** and **My files**, and the root holds a
+`WELCOME.txt` explaining the app.
+
+You *can* upload files to the root and delete or rename them there — that is
+how the welcome document gets placed, and how loose leftovers get tidied. What
+you cannot do is **create folders** at the root, so it never turns into a
+second place to organise content. Folders belong in Shared or your own space.
+
+### Creating accounts
+
+On a **fresh install you do not need an invite code.** Open `/login`, pick
+**Create account**, choose a username and password, and leave the invite field
+blank — it is not even shown. The first account becomes the administrator.
+
+To let *other* people create accounts afterwards, set a code:
+
+```bash
+FILE_EXPLORER_INVITE_CODE=pick-something-long
+```
+
+Only then does the login page ask for one. Without a code set, no additional
+accounts can be created — the first-run exemption applies only while zero
+accounts exist. This is deliberate: it removes the chicken-and-egg problem of
+needing a secret to perform initial setup, while still preventing strangers
+from self-registering on a server that is already configured.
+
+Accounts can also be managed from the command line:
+
+```powershell
+.venv\Scripts\python.exe scripts\manage_users.py list
+.venv\Scripts\python.exe scripts\manage_users.py add dana
+.venv\Scripts\python.exe scripts\manage_users.py passwd dana
+.venv\Scripts\python.exe scripts\manage_users.py delete dana
+```
+
+### Sharing one folder with a PIN
+
+You do not need to give anyone an account to let them see a single folder.
+
+1. Right-click a folder → **Set folder PIN**, choose a PIN.
+2. The app shows a link like `http://host/unlock/AbC123` plus the PIN.
+3. Send both to the person.
+
+They open the link, enter the PIN, and land *inside* that folder — read-only.
+They cannot navigate up, list the containing folders, see sibling files, or
+reach anything outside it. Remove the PIN with **Remove folder PIN**; the link
+stops working immediately.
+
+This is a capability: anyone with the link **and** the PIN gets read-only
+access to exactly that folder. Treat the pair like a password.
+
+### Sharing a single file
+
+Right-click a file → **Share file link**. That produces a browser download page
+that needs no login and expires after 7 days.
+
+Open `/login` to sign in, or `/signup` to go straight to the Create account tab.
+
+**The shared PIN stops working once an account exists.** It is only a way in on
+a deployment with no accounts at all. Leaving it active afterwards would be a
+second, unattributable route to the entire storage root that bypasses accounts
+— it cannot be scoped or revoked per person. After the first account, sign-in
+is by account only.
+
+### If you forget your password
+
+There is no email and no reset link, so there are exactly two ways back in.
+
+**1. From the login page — "Forgot your password?"**
+
+Enter your username, a new password, and the recovery code:
+
+```bash
+FILE_EXPLORER_RECOVERY_CODE=pick-something-long
+```
+
+Set this before you need it. If it is unset it falls back to
+`FILE_EXPLORER_INVITE_CODE`, so a deployment that already has an invite code
+has a way back in with no extra configuration.
+
+**2. On the server, from a terminal** — always works, needs no config:
+
+```powershell
+.venv\Scripts\python.exe scripts\manage_users.py passwd edubbleu_admin
+```
+
+Treat the recovery code like a master key: anyone holding it can take over any
+account. That is why it is a server-side secret from `.env` rather than a public
+reset form — an unauthenticated reset with no shared secret would be a way in
+for anyone who can reach the server.
+
+If neither code is set and you are away from the machine, there is no way in.
+That is the trade-off for having no email.
+
+### If someone else needs an account
+
+Either add it yourself:
+
+```powershell
+.venv\Scripts\python.exe scripts\manage_users.py add dana
+```
+
+Or set an invite code so they can self-register:
+
+```bash
+FILE_EXPLORER_INVITE_CODE=share-this-with-them
+```
+
+With no invite code and at least one account, registration is closed. The login
+page says so explicitly and tells the visitor to ask you, rather than showing a
+Create account tab that cannot work.
+
+## Using the interface
+
+- **Double-click** a folder to open it, a file to preview it. A single click
+  selects.
+- The **preview panel** on the right can be resized by dragging its left edge,
+  or with arrow keys once the handle has focus (Shift for larger steps, Home
+  for the minimum). The chosen width is remembered in the browser.
+- **Right-click** any item for rename, copy, cut, delete, and sharing.
+- Drag items onto a folder to move them, or drop files from your desktop to
+  upload.
+- Where you lack permission, the relevant toolbar buttons are disabled rather
+  than failing later.
+- Creating, uploading, renaming, moving and deleting all update the listing
+  immediately. There is no need to refresh the page.
+
+## Permissions
+
+Every filesystem request resolves a principal server-side and authorises the
+path before touching disk, inside `Storage.resolve`. Access is granted by
+*region* (a path prefix), never by bare name:
+
+| Who | Can read | Can write |
+|---|---|---|
+| Account holder | own home, `shared`, legacy root files | same |
+| Guest with a folder PIN | that folder and below, read-only | nothing |
+| API token (`FILE_EXPLORER_TOKEN`) | everything | everything |
+
+`users/` is hidden from listings so one account cannot discover another, and a
+guest never sees the folders above the one they were given.
+
 ## Configuration (`.env`)
 
 | Variable | Default | Purpose |
 |---|---|---|
-| `FILE_EXPLORER_PIN` | generated + printed at startup | PIN required to open the app |
+| `FILE_EXPLORER_PIN` | generated + printed at startup | Shared PIN. Only usable while **no accounts exist**; then it is refused. |
+| `FILE_EXPLORER_INVITE_CODE` | unset | Required to create an account once one exists; unset disables registration |
+| `FILE_EXPLORER_RECOVERY_CODE` | unset | Lets a locked-out user set a new password from the login page. Falls back to the invite code. |
 | `FLASK_SECRET_KEY` | auto-generated to `.secret_key` | Signs session cookies |
 | `STORAGE_ROOT` | `storage` | Where files are saved; point at a media drive |
 | `THUMBNAIL_CACHE_DIR` | `.thumbs` | Generated thumbnail cache |
 | `MAX_UPLOAD_MB` | `0` (unlimited) | Per-file upload ceiling |
-| `FILE_EXPLORER_TOKEN` | unset | Optional `X-Auth-Token` for scripts |
+| `FILE_EXPLORER_TOKEN` | unset | Optional `X-Auth-Token` for scripts (full access) |
 | `HOST` / `PORT` | `0.0.0.0` / `8080` | Listen address |
 | `COOKIE_SECURE` | `0` | Set to `1` when serving over HTTPS |
-| `DATABASE_URL` | local SQLite | Optional; stores share links only |
+| `DATABASE_URL` | local SQLite | Optional; stores accounts, PINs and share links |
 
 `DATABASE_URL` is optional and only holds share-link metadata — **your files
 always live on disk** under `STORAGE_ROOT`, never in the database. If it points
@@ -244,25 +440,41 @@ Two entries for port 8080 means a stale process is still serving requests.
 
 ## Database maintenance
 
-`migrate_db.py` removes the unused legacy `files` table (the original model
-stored file content in the database; files now live on disk). It refuses to
-drop the table if it contains any rows.
+`scripts/migrate_db.py` removes the unused legacy `files` table (the original
+model stored file content in the database; files now live on disk). It refuses
+to drop the table if it contains any rows. This has already been applied to
+this deployment; the script is kept in case an older database is restored.
 
 ```powershell
-.venv\Scripts\python.exe migrate_db.py --dry-run   # show what would happen
-.venv\Scripts\python.exe migrate_db.py            # apply
+.venv\Scripts\python.exe scripts\migrate_db.py --dry-run   # show what would happen
+.venv\Scripts\python.exe scripts\migrate_db.py            # apply
 ```
 
 ## Tests
 
 ```powershell
-.venv\Scripts\python.exe smoke_test.py        # 46 checks, in-process
-.venv\Scripts\python.exe live_check.py        # 21 checks over real HTTP
+.venv\Scripts\python.exe tests\smoke_test.py        # 50 checks, core API
+.venv\Scripts\python.exe tests\auth_test.py         # 43 checks, accounts + permissions
+.venv\Scripts\python.exe tests\live_check.py        # 21 checks over real HTTP
+.venv\Scripts\python.exe tests\ui_check.py --account <user> <password> [url]
 ```
 
-`smoke_test.py` uses Flask's test client against a scratch directory.
-`live_check.py` needs a running server and exercises real sockets, waitress
-streaming, and byte-exact Range responses.
+`scripts/audit_refresh.py` is a static check, not a test: it fails if any UI
+method that mutates the listing forgets to re-render it, which is the class of
+bug that leaves a newly created folder invisible until the page is refreshed.
+
+Each suite points `STORAGE_ROOT` and `DATABASE_URL` at its own scratch files
+before importing the app, so a test run cannot touch the real library or the
+real database.
+
+- `smoke_test.py` — the single-user PIN path: upload, download, Range
+  streaming, thumbnails, share links.
+- `auth_test.py` — account isolation, invite gating, per-folder PIN scoping,
+  and guest confinement.
+- `live_check.py` — same as smoke but over a real socket, exercising waitress
+  streaming and byte-exact Range responses. Needs a running server.
+- `ui_check.py` — drives a real Chrome/Edge to verify layout, directory
+  scrolling, lock badges, and permission state. Needs a running server.
 
 ## Notes on safety
 

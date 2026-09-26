@@ -1,9 +1,55 @@
+{% macro file_actions(id_prefix='') -%}
+    <button class="btn btn-light" id="uploadBtn" title="Upload files">
+        <i data-feather="upload"></i> <span>Upload</span>
+    </button>
+    <div class="dropdown">
+        <button class="btn btn-light dropdown-toggle" type="button"
+                id="newMenuBtn" data-bs-toggle="dropdown"
+                aria-expanded="false" title="Create new">
+            <i data-feather="plus"></i> <span>New</span>
+        </button>
+        <ul class="dropdown-menu" aria-labelledby="newMenuBtn">
+            <li>
+                <button class="dropdown-item" type="button" id="newFolderBtn">
+                    <i data-feather="folder-plus"></i> New Folder
+                </button>
+            </li>
+            <li>
+                <button class="dropdown-item" type="button" id="newFileBtn">
+                    <i data-feather="file-plus"></i> New File
+                </button>
+            </li>
+        </ul>
+    </div>
+    <button class="btn btn-light" id="cutBtn" title="Cut">
+        <i data-feather="scissors"></i> <span>Cut</span>
+    </button>
+    <button class="btn btn-light" id="copyBtn" title="Copy">
+        <i data-feather="copy"></i> <span>Copy</span>
+    </button>
+    <button class="btn btn-light" id="pasteBtn" title="Paste">
+        <i data-feather="clipboard"></i> <span>Paste</span>
+    </button>
+    <button class="btn btn-light" id="deleteBtn" title="Delete">
+        <i data-feather="trash-2"></i> <span>Delete</span>
+    </button>
+    <button class="btn btn-light" id="downloadBtn" title="Download">
+        <i data-feather="download"></i> <span>Download</span>
+    </button>
+    <button class="btn btn-light" id="listViewBtn" title="List view">
+        <i data-feather="list"></i> <span>List</span>
+    </button>
+    <button class="btn btn-light" id="gridViewBtn" title="Grid view">
+        <i data-feather="grid"></i> <span>Grid</span>
+    </button>
+{%- endmacro %}
 <!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Modern File Explorer</title>
+    <title>File Explorer</title>
+    <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%230d6efd' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z'/%3E%3C/svg%3E">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/highlight.js@11.8.0/styles/github.min.css">
     <script src="https://cdn.jsdelivr.net/npm/feather-icons/dist/feather.min.js"></script>
@@ -13,7 +59,7 @@
     <link rel="stylesheet" href="{{ url_for('static', filename='css/styles.css') }}">
 </head>
 <body>
-    <div class="explorer">
+    <div class="explorer" id="explorer" hidden>
         <div class="sidebar" id="sidebar">
             <div class="sidebar-header">
                 <h5>File Explorer</h5>
@@ -21,7 +67,19 @@
                     <i data-feather="x"></i>
                 </button>
             </div>
+            <div class="sidebar-user" id="sidebarUser"></div>
+            <div class="sidebar-nav" id="homeButtons"></div>
+            <!-- On phones the toolbar is hidden and these labelled buttons are
+                 the only way to reach the actions, since a toolbar of bare
+                 icons is ambiguous and there is no right-click. -->
+            <div class="sidebar-actions" id="sidebarActions">
+                <h6>Actions</h6>
+                {{ file_actions() }}
+            </div>
             <div class="tree-view" id="treeView"></div>
+            <button class="btn btn-light sidebar-logout" id="logoutBtn" title="Sign out">
+                <i data-feather="log-out"></i> <span>Sign out</span>
+            </button>
         </div>
 
         <div class="main-content">
@@ -29,45 +87,26 @@
                 <button class="sidebar-toggle" id="sidebarToggle">
                     <i data-feather="menu"></i>
                 </button>
-                <div class="btn-group">
-                    <button class="btn btn-light" id="newFolderBtn" title="New Folder">
-                        <i data-feather="folder-plus"></i> <span>New Folder</span>
-                    </button>
-                    <button class="btn btn-light" id="newFileBtn" title="New File">
-                        <i data-feather="file-plus"></i> <span>New File</span>
-                    </button>
-                    <button class="btn btn-light" id="uploadBtn" title="Upload">
-                        <i data-feather="upload"></i> <span>Upload</span>
-                    </button>
+                <div class="btn-group toolbar-actions">
+                    {{ file_actions() }}
                 </div>
-
-                <div class="btn-group ms-2">
-                    <button class="btn btn-light" id="cutBtn" title="Cut">
-                        <i data-feather="scissors"></i> <span>Cut</span>
-                    </button>
-                    <button class="btn btn-light" id="copyBtn" title="Copy">
-                        <i data-feather="copy"></i> <span>Copy</span>
-                    </button>
-                    <button class="btn btn-light" id="pasteBtn" title="Paste">
-                        <i data-feather="clipboard"></i> <span>Paste</span>
-                    </button>
+                <div class="mobile-hint ms-auto">
+                    Actions are in the menu &rarr;
                 </div>
+            </div>
 
-                <div class="btn-group ms-2">
-                    <button class="btn btn-light" id="deleteBtn" title="Delete">
-                        <i data-feather="trash-2"></i> <span>Delete</span>
+            <!-- Phones hide the toolbar, so the drawer toggle and the
+                 view switch live here instead. -->
+            <div class="mobile-bar" id="mobileBar">
+                <button class="sidebar-toggle" id="sidebarToggleMobile" title="Actions and folders">
+                    <i data-feather="menu"></i> <span>Menu</span>
+                </button>
+                <div class="btn-group ms-auto">
+                    <button class="btn btn-light btn-sm" id="listViewBtnMobile" title="List view">
+                        <i data-feather="list"></i>
                     </button>
-                    <button class="btn btn-light" id="downloadBtn" title="Download">
-                        <i data-feather="download"></i> <span>Download</span>
-                    </button>
-                </div>
-
-                <div class="view-toggle ms-auto">
-                    <button class="btn btn-light" id="listViewBtn" title="List View">
-                        <i data-feather="list"></i> <span>List</span>
-                    </button>
-                    <button class="btn btn-light" id="gridViewBtn" title="Grid View">
-                        <i data-feather="grid"></i> <span>Grid</span>
+                    <button class="btn btn-light btn-sm" id="gridViewBtnMobile" title="Grid view">
+                        <i data-feather="grid"></i>
                     </button>
                 </div>
             </div>
@@ -79,12 +118,18 @@
             </div>
 
             <div class="alert alert-danger" id="errorAlert" role="alert" style="display: none;"></div>
+            <div class="alert alert-success" id="noticeAlert" role="alert" style="display: none;"></div>
 
             <div class="content-area" id="contentArea">
                 <div class="files-container" id="filesContainer"></div>
             </div>
 
             <div class="preview-panel" id="previewPanel">
+                <!-- Drag to resize the preview. Positioned inside the panel so
+                     it moves with it; the left edge sits on the border. -->
+                <div class="preview-resizer" id="previewResizer"
+                     role="separator" aria-orientation="vertical"
+                     aria-label="Resize preview panel" tabindex="0"></div>
                 <div class="preview-header">
                     <div class="preview-title">
                         <h6 class="mb-0" id="previewFileName"></h6>
@@ -116,34 +161,24 @@
 
     <input type="file" id="fileInput" multiple style="display: none">
 
-    <div class="login-overlay" id="loginOverlay" style="display: none;">
-        <form class="login-card" id="loginForm" autocomplete="off">
-            <div class="login-icon"><i data-feather="lock"></i></div>
-            <h4>File Explorer</h4>
-            <p class="text-muted">Enter your PIN to continue</p>
-            <input
-                type="password"
-                id="pinInput"
-                class="form-control"
-                inputmode="numeric"
-                pattern="[0-9]*"
-                placeholder="PIN"
-                aria-label="PIN"
-                required>
-            <div class="login-error" id="loginError" role="alert"></div>
-            <button type="submit" class="btn btn-primary w-100 mt-3">Unlock</button>
-        </form>
-    </div>
+    <!-- Dimmed backdrop behind the mobile action sheet. -->
+    <div class="menu-backdrop" id="menuBackdrop"></div>
 
     <div class="context-menu" id="contextMenu">
         <div class="context-menu-item" data-action="open">
-            <i data-feather="folder-open"></i> Open
+            <i data-feather="folder"></i> Open
         </div>
         <div class="context-menu-item" data-action="rename">
             <i data-feather="edit"></i> Rename
         </div>
+        <div class="context-menu-item" data-action="protect">
+            <i data-feather="lock"></i> Set folder PIN
+        </div>
+        <div class="context-menu-item" data-action="unprotect">
+            <i data-feather="unlock"></i> Remove folder PIN
+        </div>
         <div class="context-menu-item" data-action="share">
-            <i data-feather="share-2"></i> Share
+            <i data-feather="share-2"></i> Share file link
         </div>
         <div class="context-menu-item" data-action="copy">
             <i data-feather="copy"></i> Copy
@@ -159,16 +194,16 @@
         </div>
     </div>
 
-    <div class="modal fade" id="shareDialog" tabindex="-1" aria-labelledby="shareDialogLabel" aria-hidden="true">
+    <div class="modal fade" id="shareDialog" tabindex="-1" aria-hidden="true">
         <div class="modal-dialog">
             <div class="modal-content">
                 <div class="modal-header">
-                    <h5 class="modal-title" id="shareDialogLabel">Share File</h5>
+                    <h5 class="modal-title">Share</h5>
                     <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
                 </div>
                 <div class="modal-body">
                     <div class="mb-3">
-                        <label for="shareLink" class="form-label">Share Link</label>
+                        <label for="shareLink" class="form-label" id="shareLinkLabel">Link</label>
                         <div class="input-group">
                             <input type="text" class="form-control" id="shareLink" readonly>
                             <button class="btn btn-outline-secondary" type="button" id="copyShareLink">
@@ -176,7 +211,7 @@
                             </button>
                         </div>
                     </div>
-                    <small class="text-muted">This link will expire in 7 days</small>
+                    <small class="text-muted" id="shareHint"></small>
                 </div>
                 <div class="modal-footer">
                     <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
@@ -185,28 +220,63 @@
         </div>
     </div>
 
+    <div class="modal fade" id="pinDialog" tabindex="-1" aria-hidden="true">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">Protect folder with a PIN</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body">
+                    <p class="mb-2" id="pinFolderName"></p>
+                    <label for="newPin" class="form-label">PIN</label>
+                    <input type="password" class="form-control" id="newPin" autocomplete="off">
+                    <small class="text-muted">
+                        Anyone with this PIN gets read-only access to this folder and
+                        everything inside it. Nothing else is visible to them.
+                    </small>
+                    <div class="text-danger mt-2" id="pinError"></div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                    <button type="button" class="btn btn-primary" id="savePinBtn">Set PIN</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
     <script>
         document.addEventListener('DOMContentLoaded', () => {
-            feather.replace();
+            if (window.feather) feather.replace();
 
-            // Add mobile sidebar toggle functionality
             const sidebar = document.getElementById('sidebar');
-            const sidebarToggle = document.getElementById('sidebarToggle');
+
+            // Any element with this class re-opens the drawer. Using the class
+            // rather than one id matters on phones: the toolbar (which holds
+            // one of the toggles) is hidden there, and a hidden element never
+            // contains the click target, so an id-based check would decide the
+            // tap came from outside and immediately close the drawer again.
+            const openDrawer = () => sidebar.classList.add('show');
+
+            document.querySelectorAll('.sidebar-toggle').forEach((toggle) => {
+                toggle.addEventListener('click', (event) => {
+                    event.stopPropagation();
+                    openDrawer();
+                });
+            });
+
             const sidebarClose = document.getElementById('sidebarClose');
+            if (sidebarClose) {
+                sidebarClose.addEventListener('click', (event) => {
+                    event.stopPropagation();
+                    sidebar.classList.remove('show');
+                });
+            }
 
-            sidebarToggle.addEventListener('click', () => {
-                sidebar.classList.add('show');
-            });
-
-            sidebarClose.addEventListener('click', () => {
-                sidebar.classList.remove('show');
-            });
-
-            // Close sidebar when clicking outside on mobile
             document.addEventListener('click', (e) => {
-                if (window.innerWidth <= 768 && 
-                    !sidebar.contains(e.target) && 
-                    !sidebarToggle.contains(e.target) &&
+                if (window.innerWidth <= 768 &&
+                    !sidebar.contains(e.target) &&
+                    !e.target.closest('.sidebar-toggle') &&
                     sidebar.classList.contains('show')) {
                     sidebar.classList.remove('show');
                 }

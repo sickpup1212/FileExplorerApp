@@ -3,64 +3,258 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Login - File Explorer</title>
+    <title>Sign in &middot; File Explorer</title>
+    <link rel="icon" href="{{ url_for('static', filename='favicon.svg') }}">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css">
     <style>
-        body {
-            height: 100vh;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            background-color: #f8f9fa;
-        }
-        .login-container {
-            max-width: 400px;
-            width: 90%;
-            padding: 2rem;
-            background: white;
-            border-radius: 8px;
-            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
-        }
-        .pin-input {
-            letter-spacing: 0.5em;
-            text-align: center;
-            font-size: 1.5em;
-        }
-        .error-message {
-            color: #dc3545;
-            margin-top: 1rem;
-            display: none;
-        }
+        body { min-height: 100vh; display: flex; align-items: center;
+               justify-content: center; background: #f1f3f5; padding: 1rem; }
+        .card { width: 100%; max-width: 380px; padding: 2rem; border: 0;
+                border-radius: 12px; box-shadow: 0 10px 30px rgba(0,0,0,.12); }
+        h1 { font-size: 1.15rem; margin: 0 0 .25rem; }
+        p.sub { color: #6c757d; font-size: .875rem; margin: 0 0 1.25rem; }
+        .hint { font-size: .75rem; color: #6c757d; }
+        .error { color: #dc3545; font-size: .85rem; min-height: 1.2rem; }
+        .tabbtn.active { background: #0d6efd; color: #fff; border-color: #0d6efd; }
     </style>
 </head>
 <body>
-    <div class="login-container">
-        <h2 class="text-center mb-4">Enter PIN</h2>
-        <form id="loginForm" method="POST" action="{{ url_for('login') }}">
-            <div class="mb-3">
-                <input type="password" 
-                       id="pin" 
-                       name="pin" 
-                       class="form-control pin-input" 
-                       maxlength="6" 
-                       pattern="[0-9]*" 
-                       inputmode="numeric"
-                       required
-                       autocomplete="off">
+    <div class="card bg-white">
+        <h1>File Explorer</h1>
+        <p class="sub" id="subtitle">Sign in to continue</p>
+        <p class="hint" id="newUserHint" style="display:none;">
+            New here? Use <strong>Create account</strong> above.
+        </p>
+        <div class="hint" id="regClosedNote" style="display:none;">
+            Registration is closed on this server, so accounts cannot be
+            self-created. Ask whoever runs it to add one for you:
+            <code>scripts/manage_users.py add &lt;name&gt;</code>
+        </div>
+
+        <div class="alert alert-success py-2" id="firstRunNotice" style="display:none;">
+            No accounts exist yet. The first account you create becomes the administrator &mdash;
+            no invite code needed.
+        </div>
+
+        <div class="btn-group w-100 mb-3" id="tabs">
+            <button type="button" class="btn btn-outline-secondary tabbtn active" id="tabLogin">Sign in</button>
+            <button type="button" class="btn btn-outline-secondary tabbtn" id="tabRegister">Create account</button>
+        </div>
+
+        <form id="loginForm" autocomplete="on">
+            <div class="mb-2">
+                <label for="loginUsername" class="form-label mb-1">Username</label>
+                <input type="text" class="form-control" id="loginUsername" autocomplete="username" required>
             </div>
-            {% if error %}
-            <div class="alert alert-danger">{{ error }}</div>
-            {% endif %}
-            <div class="d-grid">
-                <button type="submit" class="btn btn-primary">Login</button>
+            <div class="mb-2">
+                <label for="loginPassword" class="form-label mb-1">Password</label>
+                <input type="password" class="form-control" id="loginPassword" autocomplete="current-password" required>
             </div>
+            <div class="error" id="loginError" role="alert"></div>
+            <button type="submit" class="btn btn-primary w-100 mt-2">Sign in</button>
+            <button type="button" class="btn btn-link w-100 mt-1" id="tabRecover">
+                Forgot your password?
+            </button>
+        </form>
+
+        <form id="recoverForm" autocomplete="off" style="display:none;">
+            <p class="hint mb-2">
+                Enter your username, a new password, and the recovery code from
+                this server's <code>.env</code> file.
+            </p>
+            <div class="mb-2">
+                <label for="recUsername" class="form-label mb-1">Username</label>
+                <input type="text" class="form-control" id="recUsername" autocomplete="username" required>
+            </div>
+            <div class="mb-2">
+                <label for="recPassword" class="form-label mb-1">New password</label>
+                <input type="password" class="form-control" id="recPassword" autocomplete="new-password" required>
+                <div class="hint">At least 8 characters.</div>
+            </div>
+            <div class="mb-2">
+                <label for="recCode" class="form-label mb-1">Recovery code</label>
+                <input type="text" class="form-control" id="recCode" autocomplete="off" required>
+            </div>
+            <div class="error" id="recError" role="alert"></div>
+            <button type="submit" class="btn btn-primary w-100 mt-2">Set new password</button>
+            <button type="button" class="btn btn-link w-100 mt-1" id="tabBackToLogin">Back to sign in</button>
+        </form>
+
+        <form id="pinForm" autocomplete="off" style="display:none;">
+            <div class="mb-2">
+                <label for="pinInput" class="form-label mb-1">Access PIN</label>
+                <input type="password" class="form-control" id="pinInput" inputmode="numeric" placeholder="PIN" required>
+            </div>
+            <div class="error" id="pinError" role="alert"></div>
+            <button type="submit" class="btn btn-primary w-100 mt-2">Unlock</button>
+        </form>
+
+        <form id="registerForm" autocomplete="off" style="display:none;">
+            <div class="mb-2">
+                <label for="regUsername" class="form-label mb-1">Username</label>
+                <input type="text" class="form-control" id="regUsername" autocomplete="username" required>
+                <div class="hint">2-32 characters: letters, numbers, dots, dashes, underscores.</div>
+            </div>
+            <div class="mb-2">
+                <label for="regPassword" class="form-label mb-1">Password</label>
+                <input type="password" class="form-control" id="regPassword" autocomplete="new-password" required>
+                <div class="hint">At least 8 characters.</div>
+            </div>
+            <div class="mb-2" id="inviteField" style="display:none;">
+                <label for="regInvite" class="form-label mb-1">Invite code</label>
+                <input type="text" class="form-control" id="regInvite" autocomplete="off">
+                <div class="hint">Ask whoever runs this server for the code.</div>
+            </div>
+            <div class="error" id="regError" role="alert"></div>
+            <button type="submit" class="btn btn-primary w-100 mt-2">Create account</button>
         </form>
     </div>
+
     <script>
-        document.getElementById('pin').addEventListener('input', function(e) {
-            // Only allow numbers
-            this.value = this.value.replace(/[^0-9]/g, '');
+        const state = { registrationEnabled: false, pinLoginEnabled: false, accounts: 0, inviteRequired: false };
+        const el = (id) => document.getElementById(id);
+
+        function selectMode(mode) {
+            el('loginForm').style.display = mode === 'login' ? 'block' : 'none';
+            el('pinForm').style.display = mode === 'pin' ? 'block' : 'none';
+            el('registerForm').style.display = mode === 'register' ? 'block' : 'none';
+            el('recoverForm').style.display = mode === 'recover' ? 'block' : 'none';
+            // Hide the tabs while recovering: it is a single-purpose screen.
+            el('tabs').style.display = mode === 'recover' ? 'none' :
+                state.registrationEnabled ? 'flex' : 'none';
+            el('tabLogin').classList.toggle('active', mode !== 'register');
+            el('tabRegister').classList.toggle('active', mode === 'register');
+            el('subtitle').textContent =
+                mode === 'register' ? 'Create an account to get started' : 'Sign in to continue';
+
+            // Keep the field's visibility and required flag consistent with the
+            // selected mode, so switching tabs cannot leave a hidden required
+            // input silently blocking submission.
+            const showInvite = mode === 'register' && state.inviteRequired;
+            el('inviteField').style.display = showInvite ? 'block' : 'none';
+            el('regInvite').required = showInvite;
+        }
+
+        // Land where the visitor was originally headed (set by /explorer when
+        // it bounced them here), otherwise the root.
+        function goAfterAuth(data) {
+            window.location.href = (data && data.next) ? data.next : '/';
+        }
+
+        async function post(url, body) {
+            const response = await fetch(url, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                credentials: 'same-origin',
+                body: JSON.stringify(body),
+            });
+            let data = {};
+            try { data = await response.json(); } catch (e) { /* empty body */ }
+            return { ok: response.ok, data };
+        }
+
+        el('loginForm').addEventListener('submit', async (event) => {
+            event.preventDefault();
+            el('loginError').textContent = '';
+            const result = await post('/api/auth/login', {
+                username: el('loginUsername').value,
+                password: el('loginPassword').value,
+            });
+            if (result.ok) { goAfterAuth(result.data); return; }
+            el('loginError').textContent = result.data.error || 'Sign in failed';
         });
+
+        el('pinForm').addEventListener('submit', async (event) => {
+            event.preventDefault();
+            el('pinError').textContent = '';
+            const result = await post('/api/auth/login', { pin: el('pinInput').value });
+            if (result.ok) { goAfterAuth(result.data); return; }
+            el('pinError').textContent = result.data.error || 'Incorrect PIN';
+        });
+
+        el('registerForm').addEventListener('submit', async (event) => {
+            event.preventDefault();
+            el('regError').textContent = '';
+            const result = await post('/api/auth/register', {
+                username: el('regUsername').value,
+                password: el('regPassword').value,
+                invite_code: el('regInvite').value,
+            });
+            if (result.ok) { goAfterAuth(result.data); return; }
+            el('regError').textContent = result.data.error || 'Could not create the account';
+        });
+
+        el('recoverForm').addEventListener('submit', async (event) => {
+            event.preventDefault();
+            el('recError').textContent = '';
+            const result = await post('/api/auth/recover', {
+                username: el('recUsername').value,
+                password: el('recPassword').value,
+                recovery_code: el('recCode').value,
+            });
+            if (result.ok) { goAfterAuth(result.data); return; }
+            el('recError').textContent = result.data.error || 'Could not reset the password';
+        });
+
+        el('tabRecover').addEventListener('click', () => selectMode('recover'));
+        el('tabBackToLogin').addEventListener('click', () => selectMode('login'));
+
+        el('tabLogin').addEventListener('click', () => selectMode('login'));
+        el('tabRegister').addEventListener('click', () => selectMode('register'));
+
+        (async () => {
+            let status = {};
+            try {
+                status = await fetch('/api/auth/status', { credentials: 'same-origin' })
+                    .then((r) => r.json());
+            } catch (e) { /* server unreachable */ }
+
+            state.registrationEnabled = !!status.registration_open;
+            state.pinLoginEnabled = !!status.pin_login_enabled;
+            state.accounts = status.account_count || 0;
+            // The first account needs no invite code; later ones do. Asking for
+            // a code that was never issued is a dead end, so only show the
+            // field when the server actually requires it.
+            state.inviteRequired = !!status.invite_code_required;
+            state.registrationClosed = !status.registration_open;
+            el('inviteField').style.display = state.inviteRequired ? 'block' : 'none';
+            el('regInvite').required = state.inviteRequired;
+
+            // Point a brand new visitor at the way in, rather than leaving a
+            // sign-in form as the only thing on screen.
+            el('newUserHint').style.display =
+                state.accounts > 0 && state.registrationEnabled ? 'block' : 'none';
+            // Never leave a visitor with no way forward: say why, and what to do.
+            el('regClosedNote').style.display =
+                state.registrationClosed && state.accounts > 0 ? 'block' : 'none';
+            // No point offering recovery the server cannot service.
+            el('tabRecover').style.display = status.recovery_available ? 'block' : 'none';
+
+            if (status.authenticated) { window.location.href = '/'; return; }
+
+            // /signup redirects here with ?mode=register so the Create account
+            // tab is the one a new user lands on.
+            const wantsRegister =
+                new URLSearchParams(window.location.search).get('mode') === 'register';
+
+            if (wantsRegister && state.registrationEnabled) {
+                if (state.accounts === 0) el('firstRunNotice').style.display = 'block';
+                el('regUsername').focus();
+                selectMode('register');
+            } else if (state.accounts === 0 && state.registrationEnabled) {
+                // Fresh install: creating the first account is the only action.
+                el('firstRunNotice').style.display = 'block';
+                el('regUsername').focus();
+                selectMode('register');
+            } else if (state.accounts === 0 && state.pinLoginEnabled) {
+                // Single-user deployment: the shared PIN is the only way in.
+                selectMode('pin');
+            } else {
+                // Accounts exist. Default to signing in, but the Create account
+                // tab stays visible so a new person is not left guessing.
+                selectMode('login');
+            }
+        })();
     </script>
 </body>
 </html>

@@ -16,6 +16,11 @@ from dataclasses import dataclass, asdict
 from datetime import datetime, timezone
 from typing import Iterator
 
+# Imported lazily inside functions where possible to avoid an import cycle with
+# permissions (which imports storage's siblings, not storage itself), but the
+# exception type is needed at call time in several places.
+from permissions import AccessDenied
+
 # Characters that are illegal in Windows filenames, plus control characters.
 _ILLEGAL_NAME_CHARS = re.compile(r'[\x00-\x1f<>:"|?*]')
 
@@ -64,6 +69,10 @@ class Item:
     created: int
     mime: str | None = None
     is_media: bool = False
+    writable: bool = False
+    pin_protected: bool = False
+    unlocked: bool = False
+    has_pin: bool = False  # PIN exists but is not unlocked in this session
 
     def to_dict(self) -> dict:
         return asdict(self)
@@ -71,6 +80,28 @@ class Item:
 
 def _to_millis(timestamp: float) -> int:
     return int(timestamp * 1000)
+
+
+def _is_storage_root(rel_path: str) -> bool:
+    return rel_path == ""
+
+
+def _require_ancestors(principal, rel_path: str) -> None:
+    """Deny access when a *meaningful* intermediate directory is not readable.
+
+    Container levels implied by the principal's own grant are skipped: a user
+    granted ``users/alice`` is not required to be able to read ``users``. But a
+    guest granted ``users/alice/diary`` still cannot read ``users/alice``,
+    because that sits below the shallowest region they hold.
+    """
+    parts = rel_path.split("/")
+    floor = principal.min_readable_depth
+    for index in range(1, len(parts)):
+        if index <= floor:
+            continue
+        ancestor = "/".join(parts[:index])
+        if not principal.can_read(ancestor):
+            raise AccessDenied("You do not have access to this location")
 
 
 class Storage:
@@ -83,10 +114,24 @@ class Storage:
     # ------------------------------------------------------------------
     # Path handling
     # ------------------------------------------------------------------
-    def resolve(self, rel_path: str | None, *, must_exist: bool = True) -> str:
+    def resolve(
+        self,
+        rel_path: str | None,
+        principal=None,
+        *,
+        mode: str = "read",
+        must_exist: bool = True,
+    ) -> str:
         """Map an API path onto an absolute path inside the storage root.
 
-        Raises :class:`InvalidPath` for anything that escapes the root and
+        ``principal`` is required for any real request; ``None`` is only for
+        internal callers that have already authorised the path (startup checks,
+        tests). Making it an explicit argument here means a new API route
+        cannot forget to authorise: omitting it is a visible choice rather than
+        a silent default.
+
+        Raises :class:`InvalidPath` for anything that escapes the root,
+        :class:`AccessDenied` when the principal lacks permission, and
         :class:`NotFound` when ``must_exist`` is set and the target is absent.
         """
         rel_path = (rel_path or "").strip()
@@ -104,6 +149,28 @@ class Storage:
             if part == "..":
                 raise InvalidPath("Path may not contain '..'")
             parts.append(part)
+
+        if principal is not None:
+            # Authorise on the normalised relative path, before touching the
+            # filesystem, so an unauthorised probe cannot test existence.
+            target_rel = "/".join(parts)
+            if _is_storage_root(target_rel):
+                # The root is a container, not content. Reading it is how a user
+                # discovers their own space and the shared one. Writing is
+                # allowed for account holders (so a welcome document can live
+                # there and loose files can be tidied) but the decision is left
+                # to the principal, whose writable regions say whether the root
+                # is in scope. A guest holds no such region, so it is refused.
+                if mode == "write":
+                    principal.require_write(target_rel)
+                elif principal.mode not in ("user", "admin"):
+                    raise AccessDenied("You do not have access to this location")
+            else:
+                _require_ancestors(principal, target_rel)
+                if mode == "write":
+                    principal.require_write(target_rel)
+                else:
+                    principal.require_read(target_rel)
 
         candidate = os.path.join(self.root, *parts) if parts else self.root
         resolved = os.path.realpath(candidate)
@@ -175,8 +242,8 @@ class Storage:
             is_media=bool(mime and (mime.startswith("image/") or mime.startswith("video/") or mime.startswith("audio/"))),
         )
 
-    def list_dir(self, rel_path: str | None) -> list[Item]:
-        abs_path = self.resolve(rel_path)
+    def list_dir(self, rel_path: str | None, principal=None) -> list[Item]:
+        abs_path = self.resolve(rel_path, principal)
         if not os.path.isdir(abs_path):
             raise InvalidPath("Not a folder")
 
@@ -184,46 +251,77 @@ class Storage:
         with os.scandir(abs_path) as entries:
             for entry in entries:
                 try:
-                    items.append(self.describe(entry.path))
+                    item = self.describe(entry.path)
                 except OSError:
                     # Broken symlink or a file removed mid-scan: skip it rather
                     # than failing the whole listing.
                     continue
 
+                # Filter per entry rather than per directory: this is what
+                # hides "users/" from a normal account while still allowing
+                # "users/<self>" to be reached directly.
+                if principal is not None and not principal.can_read(item.path):
+                    continue
+
+                items.append(item)
+
         items.sort(key=lambda i: (i.type != "folder", i.name.lower()))
         return items
 
-    def stat(self, rel_path: str | None) -> Item:
-        return self.describe(self.resolve(rel_path))
+    def stat(self, rel_path: str | None, principal=None) -> Item:
+        return self.describe(self.resolve(rel_path, principal))
 
     # ------------------------------------------------------------------
     # Mutations
     # ------------------------------------------------------------------
-    def create_folder(self, parent_rel: str | None, name: str) -> Item:
+    def create_folder(self, parent_rel: str | None, name: str, principal=None) -> Item:
         name = self.validate_name(name)
-        parent_abs = self.resolve(parent_rel)
+
+        # The root holds the shared and personal entry points plus a welcome
+        # document. Creating folders there would turn it into a second place to
+        # organise content, which is what Shared and the personal space are for.
+        if not (parent_rel or "").strip("/"):
+            raise InvalidPath(
+                "Folders cannot be created in the root. Use Shared or your own folder."
+            )
+
+        parent_abs = self.resolve(parent_rel, principal, mode="write")
         if not os.path.isdir(parent_abs):
             raise InvalidPath("Parent is not a folder")
 
         target = os.path.join(parent_abs, name)
+        self._require_target_write(parent_abs, name, principal)
         if os.path.exists(target):
             raise AlreadyExists(f"'{name}' already exists")
         os.makedirs(target, exist_ok=False)
         return self.describe(target)
 
-    def create_file(self, parent_rel: str | None, name: str) -> Item:
+    def create_file(self, parent_rel: str | None, name: str, principal=None) -> Item:
         name = self.validate_name(name)
-        parent_abs = self.resolve(parent_rel)
+        parent_abs = self.resolve(parent_rel, principal, mode="write")
         if not os.path.isdir(parent_abs):
             raise InvalidPath("Parent is not a folder")
 
         target = os.path.join(parent_abs, name)
+        self._require_target_write(parent_abs, name, principal)
         if os.path.exists(target):
             raise AlreadyExists(f"'{name}' already exists")
         # 'x' mode fails if the file appeared between the check and the open.
         with open(target, "x"):
             pass
         return self.describe(target)
+
+    def _require_target_write(self, parent_abs: str, name: str, principal) -> None:
+        """Check permission on the path being created, not just its parent.
+
+        Authorising only the parent would let a principal with write access to
+        a region create entries that resolve outside their writable set once
+        the new name is appended.
+        """
+        if principal is None:
+            return
+        target_rel = self.to_rel(os.path.join(parent_abs, name))
+        principal.require_write(target_rel)
 
     def write_stream(
         self,
@@ -233,6 +331,7 @@ class Storage:
         *,
         overwrite: bool = False,
         max_bytes: int | None = None,
+        principal=None,
     ) -> Item:
         """Stream an uploaded body to disk.
 
@@ -241,11 +340,12 @@ class Storage:
         leaves a half-written file visible in the listing.
         """
         name = self.validate_name(name)
-        parent_abs = self.resolve(parent_rel)
+        parent_abs = self.resolve(parent_rel, principal, mode="write")
         if not os.path.isdir(parent_abs):
             raise InvalidPath("Parent is not a folder")
 
         target = os.path.join(parent_abs, name)
+        self._require_target_write(parent_abs, name, principal)
         if os.path.exists(target) and not overwrite:
             raise AlreadyExists(f"'{name}' already exists")
 
@@ -283,8 +383,8 @@ class Storage:
 
         return self.describe(target)
 
-    def delete(self, rel_path: str | None) -> None:
-        abs_path = self.resolve(rel_path)
+    def delete(self, rel_path: str | None, principal=None) -> None:
+        abs_path = self.resolve(rel_path, principal, mode="write")
         if abs_path == self.root:
             raise InvalidPath("Cannot delete the storage root")
         if os.path.isdir(abs_path):
@@ -292,12 +392,13 @@ class Storage:
         else:
             os.remove(abs_path)
 
-    def move(self, src_rel: str | None, dest_rel: str | None) -> Item:
-        src_abs = self.resolve(src_rel)
+    def move(self, src_rel: str | None, dest_rel: str | None, principal=None) -> Item:
+        # Both ends need write permission: move is a delete plus a create.
+        src_abs = self.resolve(src_rel, principal, mode="write")
         if src_abs == self.root:
             raise InvalidPath("Cannot move the storage root")
 
-        dest_abs = self.resolve(dest_rel, must_exist=False)
+        dest_abs = self.resolve(dest_rel, principal, mode="write", must_exist=False)
 
         # Refuse to move a folder inside itself, which would be destructive.
         if os.path.isdir(src_abs) and self._is_inside_source(dest_abs, src_abs):
@@ -326,12 +427,15 @@ class Storage:
         except ValueError:
             return False
 
-    def copy(self, src_rel: str | None, dest_rel: str | None) -> Item:
-        src_abs = self.resolve(src_rel)
+    def copy(self, src_rel: str | None, dest_rel: str | None, principal=None) -> Item:
+        # Read permission on the source, write permission on the destination:
+        # copying is how a user would otherwise exfiltrate a file they can see
+        # into somewhere they can serve from.
+        src_abs = self.resolve(src_rel, principal, mode="read")
         if src_abs == self.root:
             raise InvalidPath("Cannot copy the storage root")
 
-        dest_abs = self.resolve(dest_rel, must_exist=False)
+        dest_abs = self.resolve(dest_rel, principal, mode="write", must_exist=False)
         if self._is_inside_source(dest_abs, src_abs):
             raise InvalidPath("Cannot copy a folder into itself")
         if os.path.exists(dest_abs):
@@ -345,13 +449,13 @@ class Storage:
 
         return self.describe(dest_abs)
 
-    def unique_destination(self, parent_rel: str | None, name: str) -> str:
+    def unique_destination(self, parent_rel: str | None, name: str, principal=None) -> str:
         """Return a non-colliding relative path for ``name`` in ``parent_rel``.
 
         Mirrors the "copy" suffix convention so paste operations do not fail
         when the target folder already holds the same name.
         """
-        parent_abs = self.resolve(parent_rel)
+        parent_abs = self.resolve(parent_rel, principal, mode="write")
         base, ext = os.path.splitext(name)
         candidate = name
         counter = 1

@@ -52,6 +52,13 @@ class FileManager {
         this.MAX_FILE_SIZE = 0;
         /** Object URLs created for previews, revoked when replaced. */
         this._objectUrls = [];
+        /** Server-reported identity and permissions for this session. */
+        this.principal = null;
+        /** Set when signed in as an account: where "Shared" and "My files" live. */
+        this.personal = null;
+        this.shared = null;
+        /** For a guest who unlocked a folder: the root they may see. */
+        this.guestRoot = null;
     }
 
     async init() {
@@ -60,12 +67,69 @@ class FileManager {
         return status;
     }
 
+    /** Re-read who we are and what we may do. Cheap; called on each listing. */
+    async loadSession() {
+        const data = await apiFetch('/api/session');
+        this.principal = data.principal;
+        return data.principal;
+    }
+
+    async logout() {
+        await apiFetch('/api/auth/logout', { method: 'POST' });
+    }
+
+    get isGuest() {
+        return !!this.principal?.is_guest;
+    }
+
+    get username() {
+        return this.principal?.username || null;
+    }
+
+    /** True when browsing the storage root, which is a read-only landing area. */
+    get atRoot() {
+        return !this.currentPath;
+    }
+
+    /** Whether write actions should be offered at all for a path. */
+    canWrite(path = this.currentPath) {
+        if (!this.principal) return false;
+        // The root is writable for housekeeping (a welcome document, tidying
+        // loose files) but is not listed as a writable root, so fall back to
+        // the explicit permission the server reports for root files.
+        if (!path) return true;
+        return this.principal.writable_roots.some(
+            (root) => root && (path === root || path.startsWith(`${root}/`))
+        );
+    }
+
+    /** Root folders are refused server-side; the menu reflects that. */
+    get canCreateFolderAtRoot() {
+        return this.principal?.can_create_folder_at_root === true;
+    }
+
     // ------------------------------------------------------------------
     // Reading
     // ------------------------------------------------------------------
     async getItems(path = this.currentPath) {
         const data = await apiFetch(`/api/files?path=${encodePath(path)}`);
+        // The server reports the caller's permissions with every listing, so
+        // the UI never has to guess what it is allowed to enable.
+        if (data.principal) this.principal = data.principal;
+        if (data.personal !== undefined) this.personal = data.personal;
+        if (data.shared !== undefined) this.shared = data.shared;
+        if (data.guest_root !== undefined) this.guestRoot = data.guest_root;
         return data.items;
+    }
+
+    /** Full listing payload, when the caller needs the metadata too. */
+    async getListing(path = this.currentPath) {
+        const data = await apiFetch(`/api/files?path=${encodePath(path)}`);
+        if (data.principal) this.principal = data.principal;
+        if (data.personal !== undefined) this.personal = data.personal;
+        if (data.shared !== undefined) this.shared = data.shared;
+        if (data.guest_root !== undefined) this.guestRoot = data.guest_root;
+        return data;
     }
 
     async loadContent(path = this.currentPath) {
@@ -276,6 +340,41 @@ class FileManager {
             body: JSON.stringify({ path: item.path, days }),
         });
         return share.url;
+    }
+
+    // ------------------------------------------------------------------
+    // Folder PINs
+    // ------------------------------------------------------------------
+    /**
+     * Protect a folder with a PIN and return the link and PIN to hand over.
+     *
+     * The folder's owner shares this pair; the recipient gets read-only access
+     * scoped to that folder and nothing else.
+     */
+    async protectFolder(item, pin) {
+        return apiFetch('/api/pin', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ path: item.path, pin }),
+        });
+    }
+
+    async unprotectFolder(item) {
+        return apiFetch(`/api/pin?path=${encodePath(item.path)}`, { method: 'DELETE' });
+    }
+
+    async listProtectedFolders() {
+        const data = await apiFetch('/api/pins');
+        return data.pins;
+    }
+
+    /** Redeem a share token plus PIN for scoped read-only access. */
+    async unlockDirectory(token, pin) {
+        return apiFetch('/api/pin/unlock', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ token, pin }),
+        });
     }
 }
 

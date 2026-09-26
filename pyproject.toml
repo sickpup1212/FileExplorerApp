@@ -3,25 +3,32 @@ name = "file-system-explorer"
 version = "2.0.0"
 description = "Persistent, self-hosted file explorer for transferring media between devices"
 requires-python = ">=3.11"
+
+# Kept in sync with requirements.txt, which is what start.ps1/start.sh install
+# from. Not installed as a package: the app runs from the project root.
 dependencies = [
     "flask>=3.1.0",
     "flask-sqlalchemy>=3.1.1",
+    "sqlalchemy>=2.0.0",
     "pillow>=10.0.0",
     "python-dotenv>=1.0.0",
-    "sqlalchemy>=2.0.0",
     "waitress>=3.0.0",
 ]
 
 [project.optional-dependencies]
-# Only needed if you deploy on Linux (e.g. Replit) rather than locally.
+# Only needed when hosting on Linux behind gunicorn, or when DATABASE_URL
+# points at Postgres. Without psycopg2 the app falls back to local SQLite.
 deploy = [
     "gunicorn>=23.0.0",
     "psycopg2-binary>=2.9.10",
 ]
 
-[tool.setuptools]
-py-modules = ["app", "api", "storage", "models", "main"]
-
 [tool.pytest.ini_options]
-testpaths = ["."]
-python_files = ["smoke_test.py"]
+# The test files are standalone scripts with their own pass/fail reporting, so
+# they can be run directly. This is only here so `pytest tests/` also works.
+testpaths = ["tests"]
+python_files = ["*_test.py", "test_*.py"]
+
+# NOTE: there is deliberately no [tool.setuptools] section. The project is not
+# packaged or pip-installed; runtime modules are imported as top-level modules
+# from the project root, which is why `python main.py` works with no install.

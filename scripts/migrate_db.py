@@ -3,19 +3,28 @@
 The original ``models.py`` defined a ``files`` table (with a ``content`` BLOB)
 for a virtual filesystem that was never used, because files were really kept in
 browser IndexedDB. Files now live on disk under ``STORAGE_ROOT``, and the
-database only stores share links.
+database only stores accounts, folder PINs and share links.
 
 This drops the leftover ``files`` table, but only when it is empty - if it
 somehow holds rows, nothing is deleted and you are told about it instead.
 
-    .venv\\Scripts\\python.exe migrate_db.py --dry-run
-    .venv\\Scripts\\python.exe migrate_db.py
+Run from the project root:
+
+    .venv\\Scripts\\python.exe scripts\\migrate_db.py --dry-run
+    .venv\\Scripts\\python.exe scripts\\migrate_db.py
 """
 
 from __future__ import annotations
 
+import os
 import re
 import sys
+
+# Python puts this script's own directory (scripts/) on sys.path, not the
+# project root, so add the root before importing the app modules.
+PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+if PROJECT_ROOT not in sys.path:
+    sys.path.insert(0, PROJECT_ROOT)
 
 from app import app
 from extensions import db
